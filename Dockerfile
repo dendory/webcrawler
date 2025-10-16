@@ -2,8 +2,9 @@
 FROM python:3.11-slim
 
 # Set metadata
+ARG VERSION
 LABEL maintainer="Patrick Lambert [patrick@dendory.ca]"
-LABEL version="0.1.2"
+LABEL version="${VERSION}"
 LABEL description="This is a modern self-hosted web crawler application that creates WARC archives from web sites."
 
 # Set environment variables
@@ -17,6 +18,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     findutils \
+    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -32,14 +34,7 @@ COPY . .
 RUN mkdir -p /data/db /data/temp /data/archives
 
 # Set permissions
-RUN chmod +x runner.py
-
-# Create a non-root user
-RUN useradd -m -u 1000 crawler && \
-    chown -R crawler:crawler /app /data
-
-# Switch to non-root user
-USER crawler
+RUN chmod +x runner.py runner_wrapper.sh
 
 # Expose port
 EXPOSE 8080
@@ -48,16 +43,16 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/ || exit 1
 
+# Create crontab entry for runner script (every 5 minutes)
+RUN echo "*/5 * * * * /app/runner_wrapper.sh" | crontab -
+
 # Create startup script
 RUN echo '#!/bin/bash\n\
-# Start the main application\n\
-python crawler.py &\n\
+# Start cron daemon\n\
+service cron start\n\
 \n\
-# Start the runner script on a schedule (every 5 minutes)\n\
-while true; do\n\
-    python runner.py\n\
-    sleep 300\n\
-done' > /app/start.sh && chmod +x /app/start.sh
+# Start the main application\n\
+python crawler.py' > /app/start.sh && chmod +x /app/start.sh
 
 # Set the startup script as entrypoint
 CMD ["/app/start.sh"]

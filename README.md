@@ -142,9 +142,11 @@ Log files are saved alongside WARC files with `.log` extension.
 
 ## Maintenance
 
-The `runner.py` script runs automatically every 5 minutes to:
+The `runner.py` script runs automatically every 5 minutes via cron to:
 - Clean up manually deleted WARC files from the database
 - Import new WARC files found in the archives directory
+
+The runner script waits for the database to be properly initialized before running, preventing startup conflicts.
 
 ## License
 

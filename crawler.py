@@ -1,8 +1,6 @@
 #!/usr/bin/python3
 # This web app provides a WARC viewer and a web archiver
 
-__version__ = "0.1.3"
-
 import re
 import os
 import sys
@@ -23,6 +21,7 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, r
 from warcio.archiveiterator import ArchiveIterator
 from warcio.warcwriter import WARCWriter
 from internetarchive import upload
+from version import __version__
 
 app = Flask(__name__)
 

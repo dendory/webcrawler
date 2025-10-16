@@ -7,7 +7,7 @@ set -e  # Exit on any error
 
 # Configuration
 IMAGE_NAME="webcrawler"
-VERSION="0.1.3"
+VERSION=$(python3 -c "from version import __version__; print(__version__)")
 DOCKER_HUB_USERNAME="${DOCKER_HUB_USERNAME:-dendory02}"
 
 # Colors for output
@@ -32,7 +32,7 @@ fi
 
 # Build the image
 echo -e "${GREEN}Building image: ${IMAGE_NAME}:${VERSION}${NC}"
-docker build -t "${IMAGE_NAME}:${VERSION}" .
+docker build --build-arg VERSION="${VERSION}" -t "${IMAGE_NAME}:${VERSION}" .
 
 # Also tag as latest
 echo -e "${GREEN}Tagging as latest${NC}"

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Archive Viewer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .record-content {
+            max-height: 400px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .record-header {
+            background-color: #e9ecef;
+            border-radius: 0.375rem 0.375rem 0 0;
+            padding: 0.75rem;
+            border: 1px solid #aee2c6;
+            border-bottom: none;
+        }
+        .status-badge {
+            font-size: 0.8em;
+        }
+        .content-type-badge {
+            font-size: 0.8em;
+        }
+        .record-card {
+            margin-bottom: 1.5rem;
+        }
+        .archive-info {
+            background-color: #f8f9fa;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12">
+                <div class="card mt-4">
+                    <div class="card-header bg-primary text-white">
+                        <h3 class="mb-0"><i class="fas fa-archive"></i> Archive Viewer</h3>
+                    </div>
+
+                <!-- Archive Information -->
+					<div class="card-body">
+	                    <div class="row">
+   	                     <div class="col-md-4">
+   	                         <p><strong>Original URL:</strong> <a href="{{ archive[1] }}" target="_blank" class="text-decoration-none">{{ archive[1] }}</a></p>
+   	                     </div>
+   	                     <div class="col-md-4 d-flex justify-content-center">
+   	                         <p><strong>WARC File:</strong> <code>{{ archive[4] }}</code></p>
+   	                     </div>
+   	                     <div class="col-md-4 d-flex justify-content-end">
+   	                         <p><strong>Created:</strong> {{ archive[3] }}</p>
+   	                     </div>
+   	                 </div>
+					</div>
+                </div><br>
+
+                <!-- Records List -->
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0"><i class="fas fa-list"></i> Archived Records ({{ records|length }} pages)</h4>
+                    </div>
+                    <div class="card-body">
+                        {% if records %}
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>#</th>
+                                            <th>URL</th>
+                                            <th>Status</th>
+                                            <th>Type</th>
+                                            <th>Size</th>
+                                            <th>Date</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for record in records %}
+                                        <tr>
+                                            <td>{{ loop.index }}</td>
+                                            <td>
+                                                <div class="d-flex align-items-center">
+                                                    <i class="fas fa-link me-2 text-muted"></i>
+                                                    <div style="word-break: break-all;">
+                                                        <a href="#" onclick="viewFile({{ archive[0] }}, {{ record.index }}); return false;" target="_blank" class="text-decoration-none">
+                                                            {{ record.url }}
+                                                        </a>
+                                                        <br>
+                                                        <small class="text-muted" style="word-break: break-all;">File index {{ archive[0] }}.{{ record.index }}</small>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="badge status-badge {% if record.status_code == 200 %}bg-success{% elif record.status_code >= 400 %}bg-danger{% else %}bg-warning{% endif %}">
+                                                    HTTP {{ record.status_code }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                {% set content_type = record.content_type.split(';')[0] %}
+                                                {% if 'html' in content_type %}
+                                                    <span class="badge content-type-badge bg-primary">
+                                                        <i class="fas fa-file-code"></i> {{ content_type }}
+                                                    </span>
+                                                {% elif 'css' in content_type %}
+                                                    <span class="badge content-type-badge bg-success">
+                                                        <i class="fas fa-palette"></i> {{ content_type }}
+                                                    </span>
+                                                {% elif 'javascript' in content_type or 'ecmascript' in content_type %}
+                                                    <span class="badge content-type-badge bg-warning text-dark">
+                                                        <i class="fas fa-code"></i> {{ content_type }}
+                                                    </span>
+                                                {% elif 'image/' in content_type %}
+                                                    <span class="badge content-type-badge bg-info">
+                                                        <i class="fas fa-image"></i> {{ content_type }}
+                                                    </span>
+                                                {% elif 'font/' in content_type %}
+                                                    <span class="badge content-type-badge bg-secondary">
+                                                        <i class="fas fa-font"></i> {{ content_type }}
+                                                    </span>
+                                                {% else %}
+                                                    <span class="badge content-type-badge bg-dark">
+                                                        <i class="fas fa-file"></i> {{ content_type }}
+                                                    </span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <small class="text-muted">
+                                                    {% if record.content_length|int > 1024 %}
+                                                        {{ "%.1f"|format(record.content_length|int / 1024) }} KB
+                                                    {% else %}
+                                                        {{ record.content_length }} B
+                                                    {% endif %}
+                                                </small>
+                                            </td>
+                                            <td>
+                                                <small class="text-muted">{{ record.date }}</small>
+                                            </td>
+                                            <td>
+                                                <div class="btn-group btn-group-sm" role="group">
+                                                    <button class="btn btn-outline-primary" onclick="viewFile({{ archive[0] }}, {{ record.index }})">
+                                                        <i class="fas fa-eye"></i> View
+                                                    </button> &nbsp;
+                                                    <a href="{{ record.url }}" target="_blank" class="btn btn-outline-secondary">
+                                                        <i class="fas fa-external-link-alt"></i> Original
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-exclamation-triangle fa-3x mb-3"></i>
+                                <p>No records found in this WARC archive.</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function viewFile(archiveId, recordIndex) {
+            window.location.href = `/view_file/${archiveId}/${recordIndex}`;
+        }
+    </script>
+</body>
+</html>

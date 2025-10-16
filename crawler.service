@@ -1,0 +1,16 @@
+[Unit]
+Description=Web Crawler
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=30
+User=root
+ExecStart=#APPS_DIR#/crawler.py
+StandardOutput=append:/var/log/crawler.log
+StandardError=append:/var/log/crawler.log
+
+[Install]
+WantedBy=multi-user.target

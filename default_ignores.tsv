@@ -1,0 +1,271 @@
+# Global ignore patterns for Web Crawler. Source: https://github.com/ArchiveTeam/ArchiveBot
+^https?://accounts\.google\.com/ServiceLogin	Google login pages
+^https?://accounts\.google\.com/SignUp	Google signup pages
+^https?://lh4\.googleusercontent\.com/proxy/[^/]+	Google proxy images
+^https?://plus\.google\.com/_/scs/apps-static/	Google Plus static content
+^https?://[^/]+\.gamepedia\.com/(.*[?&]title=)?Special:(WikiPoints/global|ListAllUsers|AllSites)([/?&]|$)	Gamepedia special pages
+/App_Themes/.+/App_Themes/	Matching URLs containing repeated "/App_Themes/" segments
+/bxSlider/.+/bxSlider/	Recursion URLs
+/bxSlider/bxSlider/	Recursion URLs
+/slides/slides/.+/slides/	Recursion URLs
+/slides/.+/slides/slides/	Recursion URLs
+/slides/slides/slides/	Recursion URLs
+/js/js/.+/js/	Recursion URLs
+/js/js/js/	Recursion URLs
+/css/css/.+/css/	Recursion URLs
+/styles/styles/.+/styles/	Recursion URLs
+/styles/.+/styles/styles/	Recursion URLs
+/styles/styles/styles/	Recursion URLs
+/scripts/scripts/.+/scripts/	Recursion URLs
+/scripts/.+/scripts/scripts/	Recursion URLs
+/images/images/.+/images/	Recursion URLs
+/images/.+/images/images/	Recursion URLs
+/img/img/.+/img/	Recursion URLs
+/img/.+/img/img/	Recursion URLs
+/clientscript/clientscript/.+/clientscript/	Recursion URLs
+/clientscript/.+/clientscript/clientscript/	Recursion URLs
+/lib/exe/.*lib[-_]exe[-_]lib[-_]exe[-_]	Recursion URLs
+/wp-content/cache/wpfc-minified/[^/]+/[^/]+/	Matches WordPress cached minified content URLs.
+^https?://localhost(:\d+)?/	 Matches localhost URLs with optional port
+^https?://(127|10|0)\.\d+\.\d+\.\d+(:\d+)?/	Matches local IP URLs
+^https?://169\.254\.\d+\.\d+(:\d+)?/	Matches URLs to local link-local IP addresses
+^https?://172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?/	Matches local network IP URLs (private IP ranges)
+^https?://192\.168\.\d+\.\d+(:\d+)?/	Local network URLs
+^https?://192\.0\.2\.\d+(:\d+)?/	Matches URLs on specific IP subnet to skip
+^https?://198\.(18|19)\.\d+\.\d+(:\d+)?/	Matches URLs from specific IP ranges (198.18.x.x or 198.19.x.x) often used for documentation
+^https?://198\.51\.100\.\d+(:\d+)?/	Matches URLs on a specific IP address (198.51.100.*) with optional port
+^https?://203\.0\.113\.\d+(:\d+)?/	Matches URLs to a specific IP range for targeted crawling.
+^https?://www\.google\.com/recaptcha/api	Matches Google reCAPTCHA API
+^https?://(www\.)?geocities\.com/	Matches GeoCities homepage URLs
+^https?://geo\.yahoo\.com/b\?	Matches Yahoo Geo bookmark query URLs
+^https?://((s-)?static\.ak\.fbcdn\.net|(connect\.|www\.)?facebook\.com)/connect\.php/js/.*rsrc\.php	Facebook static resource URLs
+^https?://www\.flickr\.com/change_language\.gne	Flickr language change URLs to skip.
+^https?://([^/]+\.)?archive\.org/	Archive.org URLs
+^https?://([^/]+\.)?archive-it\.org/	Matches Archive-It domains
+^https?://archive\.is/	Matches archive.is URLs
+^https?://www\.google\.((com|ad|ae|al|am|as|at|az|ba|be|bf|bg|bi|bj|bs|bt|by|ca|cd|cf|cg|ch|ci|cl|cm|cn|cv|cz|de|dj|dk|dm|dz|ee|es|fi|fm|fr|ga|ge|gg|gl|gm|gp|gr|gy|hn|hr|ht|hu|ie|im|iq|is|it|je|jo|ki|kg|kz|la|li|lk|lt|lu|lv|md|me|mg|mk|ml|mn|ms|mu|mv|mw|ne|nl|no|nr|nu|pl|pn|ps|pt|ro|ru|rw|sc|se|sh|si|sk|sn|so|sm|sr|st|td|tg|tk|tl|tm|tn|to|tt|vg|vu|ws|rs|cat)|(com\.(af|ag|ai|ar|au|bd|bh|bn|bo|br|bz|co|cu|cy|do|ec|eg|et|fj|gh|gi|gt|hk|jm|kh|kw|lb|ly|mm|mt|mx|my|na|nf|ng|ni|np|om|pa|pe|pg|ph|pk|pr|py|qa|sa|sb|sg|sl|sv|tj|tr|tw|ua|uy|vc|vn))|(co\.(ao|bw|ck|cr|id|il|in|jp|ke|kr|ls|ma|mz|nz|th|tz|ug|uk|uz|ve|vi|za|zm|zw)))/finance\?noIL=1&q=[^&]+&ei=	Skip Google Finance search result URLs
+^https?://upload\.wikimedia\.org/wikipedia/[^/]+/thumb/	Matches Wikimedia image thumbnail URLs
+^https?://upload\.wikimedia\.org/wikipedia/[^/]+/transcoded/	Wikimedia upload transcoded media URLs
+^https?://s?b\.scorecardresearch\.com/	Matching Scorecard Research tracking URLs
+^http://i\.dev\.cdn\.turner\.com/	Matches Turner dev CDN URLs
+^https?://video-subtitle\.tedcdn\.com/	TED video subtitle URLs
+^https?://download\.ted\.com/	TED download URLs
+^http://msft\.digitalrivercontent\.net/win/.+\.iso	Matches direct download URLs for Windows ISO files from Microsoft's Digital River content server
+^https?://tmz\.vo\.llnwd\.net/	TMZ content delivery network
+^https?://(www\.)?megaupload\.com/	Matches URLs from the Megaupload file hosting site
+^https?://(www\.)?filesonic\.com/	URLs from filesonic.com
+^https?://(www\.)?wupload\.com/	Matches URLs from wupload.com
+^https?://prod-preview\.wired\.com/	Matches preview pages on wired.com
+^http://([^\./]+\.)?stream\.publicradio\.org/	Matches public radio streaming URLs
+^http://icecast\.streaming\.castor\.nl/	Matches specific radio stream URLs
+^http://wm1\.streaming\.castor\.nl:8000/	Matches base streaming server URL
+^http://icecast\.databoss\.nl:8000/	Matches specific media stream URL
+^http://stream\.rynothebearded\.com:8000/	Matches a media streaming server URL
+^http://mp3\.live\.tv-radio\.com/	Matches URLs from a specific MP3 streaming site
+^http://av\.rasset\.ie/av/live/	Match live streaming URLs on av.rasset.ie
+^http://gcnplayer\.gcnlive\.com/.+	GCN live player
+^http://streaming\.radionomy\.com/	Matches Radionomy streaming URLs
+^http://mp3\.ffh\.de/	Matching mp3.ffh.de URLs
+^http://(www\.)?theradio\.cc\:8000/	Matches streaming radio server URLs
+^http://(audio\d?|nfw)\.video\.ria\.ru/	Matches specific video subdomains
+^http://eu1\.fastcast4u\.com:3048/	Matches a specific streaming server URL
+^http://[^\./]+\.radioscoop\.(com|net):\d+/	Matches radioscoop URLs with ports
+^http://[^\./]+\.streamchan\.org:\d+/	Matches streaming server URLs
+^http://[^/]*musicproxy\.s12\.de/	Skip crawling URLs of musicproxy.s12.de domain
+^http://stream\.rfi\.fr/	Matches RFI stream URLs to skip
+^http://striiming\d?\.trio\.ee/	Matches streaming trio.ee URLs
+^http://streamer\.radiocampus\.be(:\d+)?/	Matches stream URLs from radiocampus.be
+^http://relay\.broadcastify\.com/	Broadcastify relay URLs
+^http://audio\d?\.radioreference\.com/	RadioReference audio subpages URLs
+^http://[^/]+\.akadostream\.ru(:\d+)?/	URLs from akadostream.ru streaming content
+^http://radio\.silver\.ru(:\d+)?/	Silver Radio site
+^http://icecast\.szwoelf\.com:8000/	Icecast streaming server URL
+^http://altair\.micronick\.com:8080/\?action=stream	Altair Micronick server
+^http://94\.25\.53\.13[1-4]/.+\.mp3$	 Matches direct MP3 files on specific IP subpaths
+^http://server\.lradio\.ru:\d+/	URLs with port on server.lradio.ru
+^http://188\.93\.17\.201:8080/	URLs from a specific IP and port
+^http://81\.19\.85\.19[56]/.+\.mp3$	MP3 file URLs on specific IP addresses
+^http://81\.19\.85\.203/.+\.mp3$	MP3 file URLs on a specific IP address
+^http://play(\d+)?\.radio13\.ru:8000/	Matches radio streaming URLs
+^http://stream(\d+)?\.media\.rambler\.ru/	Matches media stream URLs on rambler.ru
+^http://pub(\d+)?\.di\.fm/	Matches di.fm radio stream URLs
+^http://vostok\.fmtuner\.ru/	Matches URLs from vostok.fmtuner.ru domain
+^http://109\.120\.141\.181:8000/	URLs from specific IP and port
+^http://195\.88\.63\.114:8000/	URLs from a specific IP and port
+^http://radiosilver\.corbina\.net:8000/	Matches a specific radio stream URL
+^http://89\.251\.147\.100/	Matches URLs starting with a specific IP address
+^http://bcs\d?\.fontanka\.fm:8000/	Matches Fontanka FM streaming server
+^http://stream2\.cnmns\.net/	Skip URLs from a specific media streaming site
+^http://[^/]+\.streamtheworld\.com/	Matches streaming audio URLs
+^http://[^/]+\.gaduradio\.pl/	Matches gaduradio.pl domain URLs
+^http://anka\.org:8080/	Matches specific Anka.org site URLs
+^http://radio\.visionotaku\.com:8000/	Matches radio stream URLs
+^http://stream\.r-a-d\.io/	Matches URLs from a specific streaming radio domain
+^http://r-a-d\.io/.+\.mp3$	 Matches direct MP3 file links from r-a-d.io
+^http://95\.81\.155\.17/	Matches URLs from a specific IP address
+^https?://icecast\.rtl2?\.fr/	Skip streaming audio URLs from RTL2 icecast server
+^http://mp3tslg\.tdf-cdn\.com/	CDN media URL to skip
+^http://[^/]+/anony/mjpg\.cgi$	Matches anonymous MJPEG webcam stream URLs
+^https?://air\.radiorecord\.ru(:\d+)?/	Radiorecord streaming URLs
+^https?://[^/]+\.rastream\.com(:\d+)?/	Matches rastream.com URLs
+^https?://audiots\.scdn\.arkena\.com/	Matches URLs from Arkena's audio CDN
+^https?://(www|draft)\.blogger\.com/(navbar\.g|post-edit\.g|delete-comment\.g|comment-iframe\.g|share-post\.g|email-post\.g|blog-this\.g|delete-backlink\.g|rearrange|blog_this\.pyra)\?	Blogger admin and interaction URLs
+^https?://[^/]*tumblr\.com/(impixu\?|share(/link/?)?\?|reblog/)	Matches Tumblr URLs to skip image sharing and reblogging paths
+^https?://plus\.google\.com/share\?	Matches Google Plus share URLs
+^https?://(apis|plusone)\.google\.com/_/\+1/	Matches Google Plus API or +1 button URLs to skip
+^https?://(ssl\.|www\.)?reddit\.com/(login\?dest=|submit\?|static/button/button)	Matches Reddit login, submission, or button URLs
+^https?://digg\.com/submit\?	Matches Digg submission URLs
+^https?://(www\.)?facebook\.com/(plugins/like(box)?\.php|sharer/sharer\.php|sharer?\.php|dialog/(feed|share))\?	Facebook social plugin/share URLs
+^https?://www\.facebook\.com/captcha/	Facebook CAPTCHA challenge
+^https?://(www\.)?twitter\.com/(share\?|intent/((re)?tweet|favorite)|home/?\?status=|\?status=)	Twitter sharing and interaction URLs
+^https?://platform\d?\.twitter\.com/widgets/tweet_button.html\?	Twitter widget tweet button URLs
+^https?://www\.newsvine\.com/_wine/save\?	Newsvine content save URLs
+^https?://www\.netvibes\.com/subscribe\.php\?	 Matches subscription URLs on Netvibes
+^https?://add\.my\.yahoo\.com/(rss|content)\?	Matches Yahoo content/feed URLs
+^https?://www\.addtoany\.com/(add_to/|share_save\?)	Matches AddToAny sharing URLs
+^https?://www\.addthis\.com/bookmark\.php\?	Matches addthis bookmark URLs
+^https?://(www\.)?pinterest\.com/pin/create/	Pinterest pin creation URLs
+^https?://www\.linkedin\.com/(cws/share|shareArticle)\?	Matches LinkedIn article sharing URLs
+^https?://(www\.)?stumbleupon\.com/(submit\?|badge/embed/)	Matches StumbleUpon submission and embed URLs
+^https?://csp\.cyworld\.com/bi/bi_recommend_pop\.php\?	Cyworld recommendation popup URLs
+^https://share\.flipboard\.com/bookmarklet/popout\?	Flipboard bookmarklet popout URLs
+^https?://flattr.com/submit/auto\?	Flattr auto-submit URLs
+^https?://(www\.)?myspace\.com/Modules/PostTo/	MySpace post submission URLs
+^https?://www\.google\.com/bookmarks/mark\?	Google Bookmarks URLs
+^http://myweb2\.search\.yahoo\.com/myresults/bookmarklet\?	Yahoo search bookmarklet URLs
+^http://vuible\.com/pins-settings/	Vuible.com pins settings
+^https?://news\.ycombinator\.com/submitlink\?	Hacker News link submission pages
+^http://reporter\.es\.msn\.com/\?fn=contribute	MSN reporter contribution forms
+^http://www\.blinklist\.com/index\.php\?Action=Blink/addblink\.php	Skip URL submissions on blinklist.com pages
+^http://sphinn\.com/index\.php\?c=post&m=submit&	Sphinn post submission URLs
+^http://posterous\.com/share\?	Matches posterous share URLs
+^http://del\.icio\.us/post\?	Matches old del.icio.us bookmark submission URLs
+^https?://delicious\.com/(save|post)\?	Matches Delicious bookmark save/post URLs
+^https?://(www\.)?friendfeed\.com/share\?	Matches FriendFeed share URLs
+^https?://(www\.)?xing\.com/(app/user\?op=share|social_plugins/share\?)	Matching URL share endpoints on xing.com
+^http://iwiw\.hu/pages/share/share\.jsp\?	Matching iwiw.hu share page URLs
+^http://memori(\.qip)?\.ru/link/\?	Skip specific link URLs on memori.qip.ru site
+^http://wow\.ya\.ru/posts_(add|share)_link\.xml\?	Matches specific Ya.ru post add/share URL parameters
+^https?://connect\.mail\.ru/share\?	Matches Mail.ru share URLs to skip social sharing links
+^http://zakladki\.yandex\.ru/newlink\.xml\?	Matches Yandex bookmark feed URLs
+^https?://(vkontakte\.ru|vk\.com)/share\.php\?	Matches VK social share URLs
+^https?://www\.odnoklassniki\.ru/dk\?st\.cmd=addShare	URL for Odnoklassniki share actions
+^https?://www\.google\.com/(reader/link\?|buzz/post\?)	URLs to skip Google Reader and Buzz posts
+^https?://service\.weibo\.com/share/share\.php\?	URLs for Weibo share pages
+^https?://(www\.)?technorati\.com/faves/?\?add=	Matches Technorati favorites add URLs
+^https?://bufferapp\.com/add\?	Matches URLs for Buffer app share submissions
+^https?://b\.hatena\.ne\.jp/add\?	Hatena bookmark add URLs
+^https?://api\.addthis\.com/	Matching API calls to addthis.com
+^https?://bookmark\.naver\.com/post\?	Naver bookmark post URLs
+^https?://mail\.google\.com/mail/	Gmail webmail URLs
+^http://pixel\.blog\.hu/	Skip URLs from pixel.blog.hu domain
+^https?://pixel\.quantserve\.com/	Matches tracking pixel URLs
+^https?://(www|ssl)\.google-analytics\.com/(r/)?(__utm\.gif|collect\?)	Google Analytics tracking pixel URLs
+^https?://p\.opt\.fimserve\.com/	Matches URLs from a tracking or ad server
+^https?://(\d|www|secure)\.gravatar\.com/avatar/ad516503a11cd5ca435acc9bb6523536	Matches default Gravatar avatar URL
+^https?://imageshack\.com/lost$	Matches image hosting dead links
+^https?://[^/]+\.corp\.ne1\.yahoo\.com/	Matches internal corporate Yahoo URLs
+^https?://.+/js-agent\.newrelic\.com/nr-\d{3,3}(\.min)?\.js$	Matches New Relic JavaScript agent URLs
+^https?://.+/stats\.g\.doubleclick\.net/dc\.js$	Matches DoubleClick ad script URLs
+^https?://stats\.g\.doubleclick\.net/r/collect	Google DoubleClick tracking URLs
+^https?://ad\.doubleclick\.net/activity	Matches tracking URLs from DoubleClick ads
+^https?://.+/js/chartbeat\.js$	URLs ending with chartbeat.js script
+^http://www\.khaleejtimes\.com/.+/kt_.+/kt_	Filters duplicate or dynamic content URLs on khaleejtimes.com
+^http://www\.khaleejtimes\.com/.+/images/.+/images/	Skip nested image URL paths on khaleejtimes.com
+^http://www\.khaleejtimes\.com/.+/imgactv/.+/imgactv/	URLs with repeated 'imgactv' path segments
+^http://photobucket\.com/.+/albums/.+/albums/	Photobucket album URL patterns to skip
+^https?://([^/]+\.)?gdcvault\.com(/.*/|/)(fonts(/.*/|/)fonts/|css(/.*/|/)css/|img(/.*/|/)img/)	Skip static asset URLs
+^https://static\.licdn\.com/sc/p/com\.linkedin\.nux(:|%3A)nux-static-content(\+|%2B)[\d\.]+/f/	LinkedIn static content URLs
+^https?://www\.flickr\.com/(explore/|photos/[^/]+/(sets/\d+/(page\d+/)?)?)\d+_[a-f0-9]+(_[a-z])?\.jpg$	Flickr photo and set image URLs
+^https?://static\.licdn\.com/sc/p/.+/f//	LinkedIn static resource URLs
+^http://www\.warnerbros\.com/\d+$	Matches numeric-only URLs on warnerbros.com
+^https?://tm\.uol\.com\.br/h/.+/h/	URL patterns for nested user forum threads
+^https?://media\.opb\.org/clips/embed/.+\.js$	Matches embedded media clip JavaScript URLs
+^https?://[^.]+\.pinterest\.[^/]+/join/	Pinterest join/signup URLs
+\?wordfence_(logHuman|lh)=1	 Matching Wordfence security log bypass parameters in URLs
+^https?://[^/]*tumblr\.com/widgets/share/tool	Tumblr share tool URLs
+^https?://accounts\.google\.com/o/oauth2/auth\?	Google OAuth2 authentication URLs
+^https?://www\.facebook\.com/dialog/oauth\?	Facebook OAuth authorization URLs
+^https?://[^/]+\.onion/	Matches URLs on .onion sites
+http://connect\.qq\.com/widget/shareqq/index\.html\?	QQ share widget URLs
+^https?://((web|api)\.whatsapp\.com/send|wa\.me/)\?	WhatsApp message/send URLs
+^https?://(direct\.(france(info|inter|culture|musique|bleu)|fipradio|mouv)\.fr|[^/.]+\.cdn\.dvmr\.fr(:\d+)?)/.*\.mp3$	Matching direct MP3 audio URLs to skip in French public radio streaming domains
+^https?://www\.example\.com/	 Matches URLs from the main example.com homepage
+^https?://(www\.cgzxb\.com|imgnet\.com|216\.218\.185\.162)/	Matches URLs from specific domains
+^https?://assets\.squarespace\.com/universal/scripts-compressed/src/main/webapp/universal/	Matches Squarespace asset script URLs
+^https?://www\.facebook\.com/dialog/send\?	Facebook send dialog URLs
+^https?://linkedin\.com/shareArticle\?	LinkedIn article share URLs
+^https?://(line\.me/R/msg/text/|lineit\.line\.me/share/ui|social-plugins\.line\.me/lineit/share)\?	Line messaging/sharing URLs
+^https?://((videos|360)\.littlstar\.com|ls-video-masters\.s3-accelerate\.amazonaws\.com)/.*\.(mp4|mov|mkv|webm|avi|yuv|y4m)$	Matches direct video file URLs
+^https?://platform\.iteratehq\.com/[0-9a-f-]+\.png$	Matches image URLs from iteratehq
+^https?://accounts\.google\.com/(ServiceLogin|AccountChooser)\?	Google login/account chooser URLs
+^https?://s7\.addthis\.com/	AddThis social sharing URLs
+^https?://www\.google\.com/calendar/(render|event)\?	Google Calendar event or rendering URLs
+^https?://outlook\.(office|live)\.com/owa/?\?	Outlook webmail URLs
+^https?://twemoji\.maxcdn\.com/	URLs from Twemoji CDN for emoji images
+[\?&]diff=(prev|next|cur|\d+)	Matches URL parameters for diff navigation in web forum threads
+[\?&]direction=(prev|next)&oldid=\d+	Pagination navigation URLs in page history
+[\?&]curid=\d+	Wikipedia article URLs with numeric IDs
+[\?&]limit=(1|20|100|250|500)	URL parameters for result pagination limits
+[?&]dir=prev(&|$)	Matches URLs with "dir=prev" parameter
+[\?&]hide(minor|bots|anons|liu|myself|redirs|links|trans|patrolled)=	URL parameters to skip hidden or filtered content filters
+([\?&]title=|/)Special:(CreateAccount|UserLogin|UserLogout|Translate|MobileFeedback|MobileOptions|RecentChangesLinked|Diff|MobileDiff|CentralAuth)	MediaWiki special pages
+([\?&]title=|/)Special:(Ask|Browse|SearchByProperty|ExportRDF|PageProperty|Properties|UnusedProperties|WantedProperties|SMWAdmin|Types|URIResolver|QueryCreator)	Semantic MediaWiki special pages
+([\?&]title=Special:RecentChanges&|/Special:RecentChanges\?)(.*&)?from=\d+	URLs for Recent Changes pages with date filters
+([\?&]title=|/)Special:(ListFiles|PrefixIndex).*&amp;	MediaWiki Special pages URLs
+([\?&]title=|/)Special:ListFiles.*&user=	MediaWiki file list pages filtered by user
+([\?&]title=|/)Special:ListFiles.*&sort=img_(timestamp|name|size)(&|$)	MediaWiki File list pages sorted by image attributes
+([\?&]title=|/)Special:Log/	MediaWiki special log pages
+([?&]title=Special:Log&|/Special:Log\?)(.*&)?hide_[^&=]+=1(&|$)	MediaWiki log filters
+([?&]title=Special:Log&|/Special:Log\?)(.*&)?hide_.*&hide_	MediaWiki log pages with filtering parameters
+([?&]title=|/)Property:.*&until=	URLs with property filters and date limits
+([?&]title=|/)Category:.*&(page|subcat|file)until=	Wikipedia category paging URLs
+[\?&]action=edit&section=(\d+|new)	URL edit-section parameters
+[\?&]feed(format)?=atom	ATOM feed URLs
+[\?&]redlink=1	Wikipedia links to non-existent pages
+[\?&]printable=yes	Printable format pages
+[\?&]mobileaction=	Mobile site redirects
+[\?&]undo(after)?=\d+	Undo operations
+^https?://a\.wikia-beacon\.com/__track/	Matches tracking URLs on wikia-beacon.com
+^https?://beacon\.wikia-services\.com/__track/	Tracking beacon URLs
+([\?&]title=|/)Special:(PrefixIndex|WhatLinksHere|Contributions|ListFiles|ListUsers)/.*/\2/	MediaWiki special pages
+/User_talk:.+/User_talk:	Wikipedia user talk pages
+/User_blog:.+/User_blog:	Wikipedia user blog pages
+/User:.+/User:	Wikipedia user page patterns
+[\?&]replytocom=	WordPress comment reply links
+[\?&]share=	Share URLs
+\?showComment(=|%5C)	Comment pagination pages
+/quote-comment-\d+/$	Reply pages for forums
+/wp-login\.php\?	WordPress login pages
+/wp-admin(/|$)	WordPress admin pages
+^https?://r\-login\.wordpress\.com/remote\-login\.php	WordPress remote login URL
+^https?://.+\.blogspot\.(com|in|com\.au|co\.uk|jp|co\.nz|ca|de|it|fr|se|sg|es|pt|com\.br|ar|mx|kr)/\d{4,4}/\d{2,2}/CSI/$	Blogspot posts dated by year/month
+^https?://[^/]+/search\?(.*&)?reverse-paginate=true(&|$)	Matches search URLs with reverse pagination enabled
+^https?://[^/]+\.blogspot\.(com|in|com\.au|co\.uk|jp|co\.nz|ca|de|it|fr|se|sg|es|pt|com\.br|ar|mx|kr)/(?!\?widgetType=BlogArchive&).*[?&]toggle(open)?=(WEEKLY|MONTHLY|YEARLY)-\d+(&|$)	Blogspot archive toggle URL parameters
+livejournal\.com/ljcounter/?\?	LiveJournal pageview counter
+\?replyto=[0-9]+	URLs with numeric comment reply IDs
+[\?&]mode=reply	Matches URLs with reply mode parameter
+xiti\.com/hit\.xiti\?	URLs tracking hits on xiti.com
+/stats\.g\.doubleclick\.net/dc\.js$	DoubleClick tracking script URLs
+/jetpack-comment/\?	Jetpack comment URLs
+\?like_comment=\d+	URL parameters for comment likes
+^https?://.+/.+/disqus\.com/forums/$	Disqus forum root URLs
+(\?|%5Cx26)route=(/page/:page|/archive/:year/:month|/tagged/:tag|/post/:id|/image/:post_id)	Skip dynamic CMS route URLs
+^http://\d+\.media\.tumblr\.com/avatar_.+_16\.png$	Tumblr avatar image URLs
+^http://www\.livejournal\.com/(tools/memadd|update|login)\.bml\?	LiveJournal tool and login pages
+^http://[^\.]+\.livejournal\.com/.+[\?&]mode=reply	LiveJournal URLs for forum reply posts
+^https?://www\.dreamwidth\.org/tools/(memadd|tellafriend)\?	Dreamwidth sharing/tool URLs
+^https?://[^\.]+\.dreamwidth\.org/.+[\?&]mode=reply	Dreamwidth forum reply URLs
+[?&]SuperSocializerAuth=(LiveJournal|Twitch|Twitter|Xing)(&|$)	Matches SuperSocializerAuth login callbacks from social platforms
+^https?://wordpress\.com/log-in\?	Wordpress login URLs
+^https?://[^/]*/\?blackhole=[^&]+$	URLs with a 'blackhole' query parameter
+^https?://www\.instagram\.com/.*[?&]hl=	Instagram URLs with language parameter
+^https?://www\.instagram\.com/p/[^/]+/caption/[^/]+/.+/	Instagram post URLs with captions
+^https?://error\.facebook\.com/common/scribe_endpoint\.php\?c=	Facebook error logging URLs
+^https?://www\.facebook\.com/[^/]+/(posts/|app_)[^/]+\?(ref=page_internal&)?_fb_noscript=	Facebook post/app URLs
+^https?://www\.facebook\.com/[^/]+/photos/(pb|a)\.[^/]+/[^/]+/.{4,4}/	Facebook photo album URLs
+^https?://www\.facebook\.com/[^/]+/photos/(pb|a)\.[^/]+/[^/]+/\?type=	Facebook photo URLs
+^https?://.*\.facebook\.com/login	Facebook login page URLs
+^https?://(\d|secure)\.gravatar\.com/avatar/	Gravatar avatar image URLs
+^https?://((www|mobile)\.)?(twitter|x)\.com/([^/]+|i/web)/status/\d+(\?|$)	Twitter (X) status URLs
+\.?youtube\.com/user/[^/]+/(playlists|channels|videos)\?(flow|view|sort|live_view)=	YouTube user content filtering URLs

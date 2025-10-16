@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ url }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            padding: 0.5rem 1rem;
+            flex-shrink: 0;
+        }
+        .content-area {
+            flex: 1;
+            overflow: hidden;
+        }
+        .html-content {
+            height: 100%;
+            overflow-y: auto;
+            background-color: white;
+        }
+        .source-content {
+            height: 100%;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+        }
+        pre {
+            margin: 0;
+            padding: 1rem;
+            height: 100%;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+        }
+        .status-badge {
+            font-size: 0.8em;
+        }
+        .content-type-badge {
+            font-size: 0.8em;
+        }
+    </style>
+</head>
+<body>
+    <!-- Compact Header -->
+    <div class="header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center">
+                <a href="/view_archive/{{ archive_id }}" class="btn btn-sm btn-outline-secondary me-3">
+                    <i class="fas fa-arrow-left"></i> Back
+                </a>
+                <div>
+                    <span class="fw-bold">{{ url[:90] }}{% if url|length > 90 %}...{% endif %}</span>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                {% if content_type.startswith('text/html') %}
+                <div class="btn-group btn-group-sm" role="group">
+                    <button class="btn btn-outline-primary active" id="htmlBtn" onclick="showContent('html')">
+                        <i class="fas fa-eye"></i> HTML
+                    </button>
+                    <button class="btn btn-outline-secondary" id="sourceBtn" onclick="showContent('source')">
+                        <i class="fas fa-code"></i> Source
+                    </button>
+                </div>
+                {% endif %}
+                <span class="badge status-badge {% if status_code == 200 %}bg-success{% elif status_code >= 400 %}bg-danger{% else %}bg-warning{% endif %}">
+                    HTTP {{ status_code }}
+                </span>
+                {% if 'html' in content_type %}
+                    <span class="badge content-type-badge bg-primary">
+                        <i class="fas fa-file-code"></i> {{ content_type.split(';')[0] }}
+                    </span>
+                {% elif 'css' in content_type %}
+                    <span class="badge content-type-badge bg-success">
+                        <i class="fas fa-palette"></i> {{ content_type.split(';')[0] }}
+                    </span>
+                {% elif 'javascript' in content_type or 'ecmascript' in content_type %}
+                    <span class="badge content-type-badge bg-warning text-dark">
+                        <i class="fas fa-code"></i> {{ content_type.split(';')[0] }}
+                    </span>
+                {% elif 'image/' in content_type %}
+                    <span class="badge content-type-badge bg-info">
+                        <i class="fas fa-image"></i> {{ content_type.split(';')[0] }}
+                    </span>
+                {% elif 'font/' in content_type %}
+                    <span class="badge content-type-badge bg-secondary">
+                        <i class="fas fa-font"></i> {{ content_type.split(';')[0] }}
+                    </span>
+                {% else %}
+                    <span class="badge content-type-badge bg-dark">
+                        <i class="fas fa-file"></i> {{ content_type.split(';')[0] }}
+                    </span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Full Screen Content -->
+    <div class="content-area">
+        {% if content_type.startswith('text/html') %}
+            <div id="htmlContent" class="html-content">
+                {{ content|safe }}
+            </div>
+            <div id="sourceContent" class="source-content d-none">
+                <pre><code>{{ content }}</code></pre>
+            </div>
+        {% elif content_type.startswith('image/') %}
+            <div class="image-content d-flex justify-content-center align-items-center" style="height: 100%; background-color: #f8f9fa;">
+                <img src="data:{{ content_type }};base64,{{ content }}" 
+                     alt="Image" 
+                     style="max-width: 100%; max-height: 100%; object-fit: contain;"
+                     class="img-fluid">
+            </div>
+        {% elif content_type.startswith('text/css') or content_type.startswith('application/javascript') %}
+            <div class="source-content">
+                <pre><code>{{ content }}</code></pre>
+            </div>
+        {% else %}
+            <div class="source-content">
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-info-circle"></i> 
+                    This is a {{ content_type.split(';')[0] }} file. Raw content shown below. Click <a href="{{ request.path.replace('view_file', 'raw_file') }}">here</a> to download the file.
+                </div>
+                <pre><code>{{ content }}</code></pre>
+            </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function showContent(type) {
+            const htmlBtn = document.getElementById('htmlBtn');
+            const sourceBtn = document.getElementById('sourceBtn');
+            const htmlContent = document.getElementById('htmlContent');
+            const sourceContent = document.getElementById('sourceContent');
+            
+            if (type === 'html') {
+                htmlBtn.classList.add('active');
+                htmlBtn.classList.remove('btn-outline-primary');
+                htmlBtn.classList.add('btn-primary');
+                sourceBtn.classList.remove('active');
+                sourceBtn.classList.remove('btn-secondary');
+                sourceBtn.classList.add('btn-outline-secondary');
+                
+                htmlContent.classList.remove('d-none');
+                sourceContent.classList.add('d-none');
+            } else {
+                sourceBtn.classList.add('active');
+                sourceBtn.classList.remove('btn-outline-secondary');
+                sourceBtn.classList.add('btn-secondary');
+                htmlBtn.classList.remove('active');
+                htmlBtn.classList.remove('btn-primary');
+                htmlBtn.classList.add('btn-outline-primary');
+                
+                sourceContent.classList.remove('d-none');
+                htmlContent.classList.add('d-none');
+            }
+        }
+    </script>
+</body>
+</html>

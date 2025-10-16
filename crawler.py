@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # This web app provides a WARC viewer and a web archiver
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 import re
 import os
@@ -394,12 +394,6 @@ def init_db():
 	# Load default ignore patterns from TSV file
 	load_default_ignore_patterns(cursor)
 
-	# Add log_file column if it doesn't exist (migration for existing databases)
-	try:
-		cursor.execute('ALTER TABLE archives ADD COLUMN log_file TEXT')
-	except sqlite3.OperationalError:
-		# Column already exists, ignore
-		pass
 
 	conn.commit()
 	conn.close()
@@ -1072,12 +1066,19 @@ def index():
 	Returns:
 		Rendered HTML template with archives data
 	"""
-	conn = sqlite3.connect('/data/db/crawler.db')
-	cursor = conn.cursor()
-	cursor.execute('SELECT * FROM archives ORDER BY created_at DESC')
-	archives = cursor.fetchall()
-	conn.close()
-	return render_template('crawler.html', archives=archives)
+	try:
+		conn = sqlite3.connect('/data/db/crawler.db')
+		cursor = conn.cursor()
+		cursor.execute('SELECT * FROM archives ORDER BY created_at DESC')
+		archives = cursor.fetchall()
+		conn.close()
+		
+		return render_template('crawler.html', archives=archives)
+	except Exception as e:
+		print(f"Error in index route: {e}")
+		import traceback
+		traceback.print_exc()
+		return f"Error loading archives: {str(e)}", 500
 
 @app.route('/version')
 def get_version():
@@ -1092,6 +1093,7 @@ def get_version():
 		'name': 'Web Crawler',
 		'description': 'This is a modern self-hosted web crawler application that creates WARC archives from web sites.'
 	})
+
 
 @app.route('/start_crawl', methods=['POST'])
 def start_crawl():
@@ -1554,11 +1556,11 @@ def archive_details(archive_id):
 		'mode': archive[2],
 		'created_at': archive[3],
 		'warc_file': archive[4],
-		'log_file': archive[5] if len(archive) > 5 else None,
-		'pages_crawled': archive[6] if len(archive) > 6 else archive[5],
-		'status': archive[7] if len(archive) > 7 else archive[6],
-		'crawl_time': archive[8] if len(archive) > 8 else archive[7],
-		'max_size': archive[9] if len(archive) > 9 else archive[8]
+		'log_file': archive[5],
+		'pages_crawled': archive[6],
+		'status': archive[7],
+		'crawl_time': archive[8],
+		'max_size': archive[9]
 	}
 
 	return jsonify(details)

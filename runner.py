@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # This script collects externally downloaded WARC archives
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 from warcio.archiveiterator import ArchiveIterator
 from pathlib import Path

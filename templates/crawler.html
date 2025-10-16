@@ -165,15 +165,15 @@
 											    {{ archive[2].capitalize() }}
 											</span>
                                         </td>
-                                        <td>{{ archive[5] }}</td>
+                                        <td>{{ archive[6] }}</td>
                                         <td>{{ archive[3] }}</td>
                                         <td>
-                                            {% if archive[6] == 'completed' %}
+                                            {% if archive[7] == 'completed' %}
                                                 <span class="badge bg-success">Completed</span>
-                                            {% elif archive[6].startswith('error') %}
+                                            {% elif archive[7].startswith('error') %}
                                                 <span class="badge bg-danger">Error</span>
                                             {% else %}
-                                                <span class="badge bg-warning">{{ archive[6] }}</span>
+                                                <span class="badge bg-warning">{{ archive[7] }}</span>
                                             {% endif %}
                                         </td>
                                         <td>

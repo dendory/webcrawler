@@ -26,9 +26,10 @@ This is a modern self-hosted web crawler application that creates WARC archives 
    ```bash
    docker run -d \
      --name webcrawler \
+     --restart always \
      -p 8080:8080 \
      -v /path/to/your/data:/data \
-     webcrawler:latest
+     dendory02:webcrawler:latest
    ```
 
 3. **Access the web interface:**
@@ -144,12 +145,6 @@ Log files are saved alongside WARC files with `.log` extension.
 The `runner.py` script runs automatically every 5 minutes to:
 - Clean up manually deleted WARC files from the database
 - Import new WARC files found in the archives directory
-
-## Version History
-
-- **0.1.0** - Initial release with basic crawling functionality
-- **0.1.1** - Added comprehensive logging system
-- **0.1.2** - Added crawl abortion and improved UI
 
 ## License
 

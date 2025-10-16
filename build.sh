@@ -7,7 +7,7 @@ set -e  # Exit on any error
 
 # Configuration
 IMAGE_NAME="webcrawler"
-VERSION="0.1.2"
+VERSION="0.1.3"
 DOCKER_HUB_USERNAME="${DOCKER_HUB_USERNAME:-dendory02}"
 
 # Colors for output

@@ -114,24 +114,58 @@
                 <pre><code>{{ content }}</code></pre>
             </div>
         {% elif content_type.startswith('image/') %}
-            <div class="image-content d-flex justify-content-center align-items-center" style="height: 100%; background-color: #f8f9fa;">
-                <img src="data:{{ content_type }};base64,{{ content }}" 
-                     alt="Image" 
-                     style="max-width: 100%; max-height: 100%; object-fit: contain;"
-                     class="img-fluid">
-            </div>
+            {% if is_large_binary %}
+                <div class="d-flex justify-content-center align-items-center" style="height: 100%; background-color: #f8f9fa;">
+                    <div class="text-center">
+                        <div class="mb-4">
+                            <i class="fas fa-image fa-4x text-muted"></i>
+                        </div>
+                        <h4 class="mb-3">Large Image File</h4>
+                        <p class="text-muted mb-4">
+                            This image is {{ "%.1f"|format(content_size / (1024 * 1024)) }} MB and is too large to display inline.
+                        </p>
+                        <a href="{{ request.path.replace('view_file', 'raw_file') }}" class="btn btn-primary btn-lg">
+                            <i class="fas fa-download"></i> Download Image
+                        </a>
+                    </div>
+                </div>
+            {% else %}
+                <div class="image-content d-flex justify-content-center align-items-center" style="height: 100%; background-color: #f8f9fa;">
+                    <img src="data:{{ content_type }};base64,{{ content }}" 
+                         alt="Image" 
+                         style="max-width: 100%; max-height: 100%; object-fit: contain;"
+                         class="img-fluid">
+                </div>
+            {% endif %}
         {% elif content_type.startswith('text/css') or content_type.startswith('application/javascript') %}
             <div class="source-content">
                 <pre><code>{{ content }}</code></pre>
             </div>
         {% else %}
-            <div class="source-content">
-                <div class="alert alert-info mb-3">
-                    <i class="fas fa-info-circle"></i> 
-                    This is a {{ content_type.split(';')[0] }} file. Raw content shown below. Click <a href="{{ request.path.replace('view_file', 'raw_file') }}">here</a> to download the file.
+            {% if is_large_binary %}
+                <div class="d-flex justify-content-center align-items-center" style="height: 100%; background-color: #f8f9fa;">
+                    <div class="text-center">
+                        <div class="mb-4">
+                            <i class="fas fa-file fa-4x text-muted"></i>
+                        </div>
+                        <h4 class="mb-3">Large Binary File</h4>
+                        <p class="text-muted mb-4">
+                            This {{ content_type.split(';')[0] }} file is {{ "%.1f"|format(content_size / (1024 * 1024)) }} MB and cannot be displayed inline.
+                        </p>
+                        <a href="{{ request.path.replace('view_file', 'raw_file') }}" class="btn btn-primary btn-lg">
+                            <i class="fas fa-download"></i> Download File
+                        </a>
+                    </div>
                 </div>
-                <pre><code>{{ content }}</code></pre>
-            </div>
+            {% else %}
+                <div class="source-content">
+                    <div class="alert alert-info mb-3">
+                        <i class="fas fa-info-circle"></i> 
+                        This is a {{ content_type.split(';')[0] }} file. Raw content shown below. Click <a href="{{ request.path.replace('view_file', 'raw_file') }}">here</a> to download the file.
+                    </div>
+                    <pre><code>{{ content }}</code></pre>
+                </div>
+            {% endif %}
         {% endif %}
     </div>
 

@@ -1,152 +1,110 @@
-# Web Crawler
+# Web Crawler Application
 
 This is a modern self-hosted web crawler application that creates WARC archives from web sites with a WARC viewer.
 
 ## Features
 
-- **Web-based Interface**: Easy-to-use web interface for starting and managing crawls
-- **WARC Archive Creation**: Creates standard WARC (Web ARChive) files for long-term preservation
-- **Comprehensive Logging**: Detailed logging of all crawl activities with timestamps
-- **URL Filtering**: Configurable ignore patterns to exclude unwanted URLs
-- **Internet Archive Upload**: Direct upload capability to Internet Archive
-- **Real-time Progress**: Live progress tracking during crawl operations
-- **Crawl Abortion**: Ability to abort ongoing crawls
-- **Archive Management**: View, download, and delete archived content
+- **Simple and Advanced crawling modes**: Basic HTTP requests or Chromium-based crawling
+- **WARC archive creation**: Creates standard WARC files for web archiving
+- **Bootstrap web interface**: Modern web UI for managing crawls and viewing archives
+- **Internet Archive integration**: Upload archives directly to Internet Archive
+- **Pattern-based URL filtering**: Ignore unwanted URLs during crawling
+- **Retry logic**: Retry mechanism for handling temporary failures
+- **Automatic detection of additional archives**: Every 5 minutes, newly added or deleted archives are detected
 
-## Quick Start
+## Installation
 
-### Using Docker (Recommended)
+### Docker Installation
 
-1. **Pull the image:**
-   ```bash
-   docker pull webcrawler:latest
-   ```
-
-2. **Run the container:**
-   ```bash
+```bash
    docker run -d \
      --name webcrawler \
      --restart always \
      -p 8080:8080 \
-     -v /path/to/your/data:/data \
-     dendory02:webcrawler:latest
-   ```
+     -v /path/to/your/data/archives:/data/archives \
+     -v /path/to/your/data/db:/data/db \
+     -v /path/to/your/data/temp:/data/temp \
+     -v /path/to/your/data/config:/data/config \
+     dendory02/webcrawler:latest
+```
 
-3. **Access the web interface:**
-   Open your browser and navigate to `http://localhost:8080`
+The web interface will be available at: `http://localhost:8080`
 
 ### Manual Installation
 
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+#### Prerequisites
 
-2. **Create data directories:**
-   ```bash
-   mkdir -p /data/{db,temp,archives}
-   ```
+- Linux host (Ubuntu/Debian, CentOS/RHEL, or Fedora)
+- Python 3.7 or higher
+- pip3
 
-3. **Run the application:**
-   ```bash
-   python crawler.py
-   ```
+#### Installation
+
+1. **Download the zipped repo to your Linux host**
+2. **Run the installation script as root:**
+
+```bash
+sudo ./install.sh
+```
+
+The installation script will:
+- Create the directory structure at `/opt/crawler/`
+- Install Python dependencies in a virtual environment
+- Set up the systemd service
+- Configure crontab for the runner script
+- Start the web crawler service
 
 ## Directory Structure
 
-```
-/app/                    # Application code
-├── crawler.py          # Main application
-├── runner.py           # Scheduled maintenance script
-├── templates/          # HTML templates
-├── requirements.txt    # Python dependencies
-└── README.md          # This file
+After installation, the application uses the following directory structure:
 
-/data/                  # Data directory (mounted as volume)
-├── db/                # SQLite database
-├── temp/              # Temporary crawl files
-└── archives/          # WARC and log files
+```
+/opt/crawler/
+├── app/                    # Application files
+│   ├── crawler.py          # Main web crawler application
+│   ├── runner.py           # Manual archive runner script
+│   └── templates/          # Web interface templates
+├── config/                 # Configuration files
+│   ├── crawler.cfg         # Main configuration
+│   └── default_ignores.tsv # Default URL ignore patterns
+├── archives/               # WARC archive files
+├── db/                     # SQLite database
+├── temp/                   # Temporary crawl files
+└── venv/                   # Python virtual environment
 ```
 
 ## Configuration
 
-### Environment Variables
+The main configuration file is located at `/opt/crawler/config/crawler.cfg`.
 
-- `FLASK_HOST`: Host to bind to (default: 0.0.0.0)
-- `FLASK_PORT`: Port to bind to (default: 8080)
-- `SSL_CERT_PATH`: Path to SSL certificate (optional)
-- `SSL_KEY_PATH`: Path to SSL private key (optional)
+Key settings include:
 
-### Data Persistence
+- **Web Interface**: IP address and port (default: 0.0.0.0:8080)
+- **SSL Settings**: Certificate and key paths for HTTPS
+- **Connection Settings**: Timeout, retry limits, and delays
+- **File Size Limits**: Maximum sizes for displaying binary files
+- **Crawling Settings**: User agents, accept headers, and language preferences
 
-The `/data` directory should be mounted as a volume to persist:
-- Database files
-- WARC archives
-- Log files
-- Temporary crawl data
+### Password Authentication
+
+The web crawler includes a simple password-based authentication system to protect access to the web interface. The default password is **`archive`**.
+
+To change the password, you need to generate a SHA256 hash of your new password and update the configuration file. For example:
+
+```bash
+ echo -n "your_new_password" | sha256sum
+```
 
 ## Usage
 
-### Starting a Crawl
+Access the web interface at `http://your-server:8080` (or your configured IP/port).
 
-1. Open the web interface
-2. Enter the URL to crawl
-3. Configure crawl options:
-   - **Crawl Mode**: Simple (wget style) or Advanced (chrome headless browser)
-   - **Max Size**: Maximum file size to download (in bytes)
-   - **Be Nice**: Add delays between requests (0.5 secs)
-   - **Limit to Same Page**: Restrict crawling to same web page or sub-pages, otherwise the folder is used
-4. Click "Start" to begin crawling
-
-### Managing Archives
-
-- **View Archive**: Browse archived content in a web interface
-- **Log Details**: View detailed crawl logs with timestamps
-- **Upload to IA**: Upload archives to Internet Archive
-- **Delete**: Remove archives and associated files
-
-### URL Filtering
-
-Configure ignore patterns to exclude unwanted URLs:
-- Use regex patterns for flexible matching
-- Enable/disable patterns as needed
-- Built-in patterns for common exclusions
-
-## API Endpoints
-
-### Crawl Management
-- `POST /start_crawl` - Start a new crawl
-- `POST /abort_crawl` - Abort an ongoing crawl
-- `GET /progress` - Get crawl progress
-
-### Archive Management
-- `GET /view_archive/<id>` - View archive contents
-- `GET /log_file/<id>` - Get crawl log file
-- `POST /delete/<id>` - Delete an archive
-- `POST /ia/<id>` - Upload to Internet Archive
-
-### File Access
-- `GET /view_file/<archive_id>/<record_index>` - View archived file
-- `GET /raw_file/<archive_id>/<record_index>` - Get raw file content
-
-## Logging
-
-The application creates detailed logs for each crawl:
-- Timestamped entries for all activities
-- URL crawling status and HTTP response codes
-- Error messages and warnings
-- Link discovery and filtering information
-- WARC file creation details
-
-Log files are saved alongside WARC files with `.log` extension.
-
-## Maintenance
-
-The `runner.py` script runs automatically every 5 minutes via cron to:
-- Clean up manually deleted WARC files from the database
-- Import new WARC files found in the archives directory
-
-The runner script waits for the database to be properly initialized before running, preventing startup conflicts.
+Features:
+- Start new crawls with custom settings
+- View crawl progress in real-time
+- Browse and download WARC archives
+- Upload archives to Internet Archive
+- Manage URL ignore patterns
 
 ## License
 
@@ -157,4 +115,3 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-

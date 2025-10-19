@@ -1,40 +1,40 @@
-# Use Python 3.11 slim image as base
+# Web Crawler Docker Image
 FROM python:3.11-slim
-
-# Set metadata
-ARG VERSION
-LABEL maintainer="Patrick Lambert [patrick@dendory.ca]"
-LABEL version="${VERSION}"
-LABEL description="This is a modern self-hosted web crawler application that creates WARC archives from web sites."
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV FLASK_HOST=0.0.0.0
-ENV FLASK_PORT=8080
-
-# Create app directory
-WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    findutils \
-    cron \
+    chromium \
+    chromium-driver \
+    curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Create app directory
+WORKDIR /opt/crawler/app
+
+# Create necessary directories
+RUN mkdir -p /opt/crawler/{archives,db,temp,config}
+
+# Copy requirements.txt
+COPY requirements.txt /opt/crawler/app/
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r /opt/crawler/app/requirements.txt
 
-# Copy application code
-COPY . .
+# Copy application files
+COPY crawler.py /opt/crawler/app/
+COPY runner.py /opt/crawler/app/
+COPY templates/ /opt/crawler/app/templates/
+COPY crawler.cfg /opt/crawler/config/
+COPY default_ignores.tsv /opt/crawler/config/
+COPY docker_startup.sh /opt/crawler/app/
 
-# Create data directories
-RUN mkdir -p /data/db /data/temp /data/archives
-
-# Set permissions
-RUN chmod +x runner.py runner_wrapper.sh
+# Make startup script executable
+RUN chmod +x /opt/crawler/app/docker_startup.sh
 
 # Expose port
 EXPOSE 8080
@@ -43,16 +43,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/ || exit 1
 
-# Create crontab entry for runner script (every 5 minutes)
-RUN echo "*/5 * * * * /app/runner_wrapper.sh" | crontab -
-
-# Create startup script
-RUN echo '#!/bin/bash\n\
-# Start cron daemon\n\
-service cron start\n\
-\n\
-# Start the main application\n\
-python crawler.py' > /app/start.sh && chmod +x /app/start.sh
-
-# Set the startup script as entrypoint
-CMD ["/app/start.sh"]
+# Start command
+CMD ["/opt/crawler/app/docker_startup.sh"]

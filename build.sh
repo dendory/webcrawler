@@ -1,63 +1,102 @@
 #!/bin/bash
-
-# Build script for Web Crawler Docker image
-# This script builds the image and pushes it to Docker Hub
+# This script builds the Docker image and pushes it to Docker Hub
 
 set -e  # Exit on any error
-
-# Configuration
-IMAGE_NAME="webcrawler"
-VERSION=$(python3 -c "from version import __version__; print(__version__)")
-DOCKER_HUB_USERNAME="${DOCKER_HUB_USERNAME:-dendory02}"
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}Building Web Crawler Docker Image${NC}"
-echo "=================================="
+# Function to print colored output
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
 
-# Check if Docker is running
-if ! docker info > /dev/null 2>&1; then
-    echo -e "${RED}Error: Docker is not running. Please start Docker and try again.${NC}"
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Configuration
+DOCKER_USERNAME="dendory02"
+IMAGE_NAME="webcrawler"
+
+# Read version from VERSION file
+if [ -f "VERSION" ]; then
+    VERSION=$(cat VERSION | tr -d '\n\r')
+else
+    print_error "VERSION file not found!"
     exit 1
 fi
 
-# Check if logged into Docker Hub
-if ! docker info | grep -q "Username:"; then
-    echo -e "${YELLOW}Warning: Not logged into Docker Hub. You may need to run 'docker login' first.${NC}"
+TAG="latest"
+FULL_IMAGE_NAME="${DOCKER_USERNAME}/${IMAGE_NAME}:${TAG}"
+VERSIONED_IMAGE_NAME="${DOCKER_USERNAME}/${IMAGE_NAME}:${VERSION}"
+
+print_status "Starting Docker build and push process..."
+print_status "Version: ${VERSION}"
+print_status "Latest image: ${FULL_IMAGE_NAME}"
+print_status "Versioned image: ${VERSIONED_IMAGE_NAME}"
+
+# Check if Docker is installed and running
+if ! command -v docker &> /dev/null; then
+    print_error "Docker is not installed. Please install Docker first."
+    exit 1
 fi
 
-# Build the image
-echo -e "${GREEN}Building image: ${IMAGE_NAME}:${VERSION}${NC}"
-docker build --build-arg VERSION="${VERSION}" -t "${IMAGE_NAME}:${VERSION}" .
+if ! docker info &> /dev/null; then
+    print_error "Docker is not running. Please start Docker first."
+    exit 1
+fi
 
-# Also tag as latest
-echo -e "${GREEN}Tagging as latest${NC}"
-docker tag "${IMAGE_NAME}:${VERSION}" "${IMAGE_NAME}:latest"
+# Check if user is logged in to Docker Hub
+print_status "Checking Docker Hub authentication..."
+if ! docker info | grep -q "Username: ${DOCKER_USERNAME}"; then
+    print_warning "Not logged in to Docker Hub as ${DOCKER_USERNAME}"
+fi
 
-# Tag for Docker Hub
-echo -e "${GREEN}Tagging for Docker Hub${NC}"
-docker tag "${IMAGE_NAME}:${VERSION}" "${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:${VERSION}"
-docker tag "${IMAGE_NAME}:latest" "${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:latest"
+# Build the Docker image
+print_status "Building Docker image..."
+docker build -t "${FULL_IMAGE_NAME}" -t "${VERSIONED_IMAGE_NAME}" .
 
-# Push to Docker Hub
-echo -e "${GREEN}Pushing to Docker Hub${NC}"
-docker push "${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:${VERSION}"
-docker push "${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:latest"
+if [ $? -eq 0 ]; then
+    print_success "Docker image built successfully!"
+else
+    print_error "Docker build failed!"
+    exit 1
+fi
 
-echo -e "${GREEN}Build and push completed successfully!${NC}"
-echo ""
-echo "Images created:"
-echo "  - ${IMAGE_NAME}:${VERSION}"
-echo "  - ${IMAGE_NAME}:latest"
-echo "  - ${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:${VERSION}"
-echo "  - ${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:latest"
-echo ""
-echo "To run the container:"
-echo "  docker run -d --name webcrawler -p 8080:8080 -v /path/to/data:/data ${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:latest"
-echo ""
-echo "To test locally:"
-echo "  docker run -d --name webcrawler -p 8080:8080 -v \$(pwd)/data:/data ${IMAGE_NAME}:latest"
+# Push the images to Docker Hub
+print_status "Pushing images to Docker Hub..."
+print_status "Pushing latest tag..."
+docker push "${FULL_IMAGE_NAME}"
+
+if [ $? -eq 0 ]; then
+    print_success "Latest image pushed successfully!"
+else
+    print_error "Failed to push latest image to Docker Hub!"
+    exit 1
+fi
+
+print_status "Pushing versioned tag..."
+docker push "${VERSIONED_IMAGE_NAME}"
+
+if [ $? -eq 0 ]; then
+    print_success "Versioned image pushed successfully!"
+else
+    print_error "Failed to push versioned image to Docker Hub!"
+    exit 1
+fi
+
+# Display usage information
+print_success "Build and push completed successfully!"

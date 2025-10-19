@@ -45,7 +45,7 @@ def load_config(config_file=None):
 if __name__ == '__main__':
 	# Parse command line arguments
 	import argparse
-	parser = argparse.ArgumentParser(description='Web Crawler Runner')
+	parser = argparse.ArgumentParser(description='Web Crawler Mapper')
 	parser.add_argument('--config', '-c', help='Path to configuration file', 
 	                   default='/opt/crawler/config/crawler.cfg')
 	args = parser.parse_args()
@@ -57,7 +57,7 @@ if __name__ == '__main__':
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-log = logging.getLogger("runner")
+log = logging.getLogger("crawler_mapper")
 db = sqlite3.connect(dbname)
 cur = db.cursor()
 

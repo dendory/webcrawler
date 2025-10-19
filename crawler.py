@@ -7,32 +7,264 @@ import sys
 import time
 import base64
 import shutil
-import subprocess
-import logging
 import sqlite3
 import requests
 import threading
 import traceback
+import configparser
+import subprocess
+import logging
+import hashlib
 from io import BytesIO
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urljoin, urlparse
-from flask import Flask, render_template, request, jsonify, redirect, url_for, render_template_string
+from flask import Flask, render_template, request, jsonify, redirect, url_for, render_template_string, session, flash
 from warcio.archiveiterator import ArchiveIterator
 from warcio.warcwriter import WARCWriter
 from internetarchive import upload
-from version import __version__
+from requests.exceptions import RequestException, Timeout, ConnectionError, HTTPError
+from functools import wraps
+
+# Selenium imports for Advanced mode
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options as ChromeOptions
+    from selenium.webdriver.chrome.service import Service as ChromeService
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import TimeoutException, WebDriverException
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
 
 app = Flask(__name__)
+cfg = None
+
+# Authentication functions
+def hash_password(password):
+    """Hash a password using SHA256"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(password, stored_hash):
+    """Verify a password against its stored hash"""
+    return hash_password(password) == stored_hash
+
+def login_required(f):
+    """Decorator to require authentication for routes"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('authenticated'):
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def check_authentication():
+    """Check if user is authenticated and session is still valid"""
+    if not session.get('authenticated'):
+        return False
+    
+    # Check if session has expired
+    login_time = session.get('login_time')
+    if login_time:
+        login_datetime = datetime.fromisoformat(login_time)
+        if datetime.now() - login_datetime > timedelta(days=int(cfg.get('general', 'session_days'))):
+            session.clear()
+            return False
+    
+    return True
+
+# Authentication routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handle user login"""
+    if request.method == 'POST':
+        password = request.form.get('password')
+        if password:
+            stored_hash = cfg.get('general', 'password')
+            if verify_password(password, stored_hash):
+                session['authenticated'] = True
+                session['login_time'] = datetime.now().isoformat()
+                next_page = request.args.get('next')
+                return redirect(next_page) if next_page else redirect(url_for('index'))
+            else:
+                flash('Invalid password', 'error')
+        else:
+            flash('Password is required', 'error')
+    return render_template('login.html')
+
+def make_http_request_with_retry(method, url, logger=None, **kwargs):
+	"""
+	Make an HTTP request with retry logic for temporary failures.
+	
+	Args:
+		method (str): HTTP method ('get', 'head', 'post', etc.)
+		url (str): URL to request
+		logger: Logger instance for logging retry attempts and failures
+		**kwargs: Additional arguments to pass to requests method
+		
+	Returns:
+		requests.Response: Response object if successful
+		
+	Raises:
+		RequestException: If all retries are exhausted
+	"""
+	# Get the appropriate requests method
+	request_method = getattr(requests, method.lower())
+	
+	# Get retry configuration from config
+	max_retries = int(cfg.get('connections', 'max_retries'))
+	base_delay = int(cfg.get('connections', 'base_delay'))
+	max_delay = int(cfg.get('connections', 'max_delay'))
+	
+	# Special handling for 429 (Too Many Requests)
+	last_429_time = None
+	rate_limit_retry_duration = 60  # 1 minute for 429 errors
+	
+	for attempt in range(max_retries + 1):  # +1 for initial attempt
+		try:
+			response = request_method(url, **kwargs)
+			
+			# Check for 429 status code
+			if response.status_code == 429:
+				current_time = time.time()
+				
+				# If this is the first 429 or enough time has passed since last 429
+				if last_429_time is None or (current_time - last_429_time) >= rate_limit_retry_duration:
+					last_429_time = current_time
+					if attempt < max_retries:
+						# Wait 10 seconds before retrying 429
+						time.sleep(10)
+						continue
+				
+				# If we've been getting 429s for too long, give up
+				if (current_time - last_429_time) < rate_limit_retry_duration:
+					if logger:
+						logger.log(f"Rate limited (429) for {url} for too long, giving up after {attempt + 1} attempts", "WARN")
+					response.raise_for_status()
+			
+			# For other temporary errors, check if we should retry
+			elif response.status_code >= 500 or response.status_code in [408, 429]:
+				if attempt < max_retries:
+					# Calculate exponential backoff delay
+					delay = min(base_delay * (2 ** attempt), max_delay)
+					time.sleep(delay)
+					continue
+				else:
+					if logger:
+						logger.log(f"HTTP error {response.status_code} for {url}, max retries ({max_retries}) exceeded, giving up", "WARN")
+					response.raise_for_status()
+			
+			# Success or permanent error (4xx except 408, 429)
+			return response
+			
+		except (ConnectionError, Timeout) as e:
+			# Network-related errors - always retry
+			if attempt < max_retries:
+				delay = min(base_delay * (2 ** attempt), max_delay)
+				time.sleep(delay)
+				continue
+			else:
+				if logger:
+					logger.log(f"Network error ({type(e).__name__}) for {url}, max retries ({max_retries}) exceeded, giving up", "WARN")
+				raise
+		
+		except HTTPError as e:
+			# HTTP errors that aren't handled above
+			if attempt < max_retries and e.response.status_code >= 500:
+				delay = min(base_delay * (2 ** attempt), max_delay)
+				time.sleep(delay)
+				continue
+			else:
+				if logger:
+					logger.log(f"HTTP error {e.response.status_code} for {url}, giving up", "WARN")
+				raise
+		
+		except RequestException as e:
+			# Other request exceptions - retry once
+			if attempt < max_retries:
+				delay = min(base_delay * (2 ** attempt), max_delay)
+				time.sleep(delay)
+				continue
+			else:
+				if logger:
+					logger.log(f"Request error ({type(e).__name__}) for {url}, max retries ({max_retries}) exceeded, giving up", "WARN")
+				raise
+	
+	# This should never be reached, but just in case
+	if logger:
+		logger.log(f"All retries exhausted for {method.upper()} {url}", "WARN")
+	raise RequestException(f"All retries exhausted for {method.upper()} {url}")
+
+def load_config(config_file=None):
+	"""
+	Load configuration from crawler.cfg file.
+
+	Args:
+		config_file (str, optional): Path to config file. If None, uses default location.
+
+	Returns:
+		configparser.ConfigParser: Loaded configuration object
+	"""
+	global cfg
+
+	cfg = configparser.ConfigParser()
+	
+	# Use provided config file or default location
+	if config_file is None:
+		config_file = os.path.join(os.path.dirname(__file__), 'crawler.cfg')
+
+	# Load config file
+	try:
+		cfg.read(config_file)
+		for section in cfg.sections():
+			for key in cfg[section]:
+				value = cfg[section][key]
+				if isinstance(value, str) and value.startswith('"') and value.endswith('"'):
+					cfg[section][key] = value[1:-1] # Strip quotes
+	except Exception as e:
+		print(f"Configuration file {config_file} could not be loaded: {e}", file=sys.stderr)
+		quit(1)
+
+	return cfg
+
+def create_webdriver():
+	"""
+	Create and configure a Chrome WebDriver for Selenium-based crawling.
+
+	Returns:
+		webdriver.Chrome: Configured Chrome WebDriver instance
+	"""
+	if not SELENIUM_AVAILABLE:
+		raise WebDriverException("Selenium is not available. Please install selenium package.")
+
+	chrome_options = ChromeOptions()
+	chrome_options.add_argument('--headless')
+	chrome_options.add_argument('--no-sandbox')
+	chrome_options.add_argument('--disable-dev-shm-usage')
+	chrome_options.add_argument('--disable-gpu')
+	chrome_options.add_argument('--disable-extensions')
+	chrome_options.add_argument('--disable-plugins')
+	chrome_options.add_argument('--disable-images')
+	chrome_options.add_argument(f'--user-agent={cfg.get("advanced", "chrome_user_agent")}')
+
+	# Try to create WebDriver
+	try:
+		driver = webdriver.Chrome(options=chrome_options)
+		driver.set_page_load_timeout(int(cfg.get('connections', 'timeout')))  # Use config timeout
+		return driver
+	except Exception as e:
+		raise WebDriverException(f"Failed to create WebDriver: {str(e)}")
 
 class CrawlLogger:
 	"""
-	A logging class that writes crawl progress and information to a log file.
+	A logging class that writes crawl progress and information to the log.
 	"""
 
 	def __init__(self, log_file_path):
 		"""
-		Initialize the logger with a log file path.
+		Initialize the logger.
 
 		Args:
 			log_file_path (str): Path to the log file
@@ -43,9 +275,8 @@ class CrawlLogger:
 		# Create log file and write initial header
 		with open(self.log_file_path, 'w', encoding='utf-8') as f:
 			f.write(f"=== Web Crawler Log ===\n")
-			f.write(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-			f.write(f"Log file: {log_file_path}\n")
-			f.write("=" * 50 + "\n\n")
+			f.write(f"Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+			f.write(f"Log file: {log_file_path}\n\n")
 
 	def log(self, message, level="INFO"):
 		"""
@@ -134,8 +365,8 @@ class CrawlLogger:
 			warc_path (str): Path to the created WARC file
 			pages_count (int): Number of pages in the WARC
 		"""
-		self.log(f"Creating WARC file: {warc_path}")
 		self.log(f"Total pages to archive: {pages_count}")
+		self.log(f"Writing WARC file: {warc_path}")
 
 	def log_crawl_complete(self, total_pages, crawl_time, warc_path):
 		"""
@@ -150,7 +381,7 @@ class CrawlLogger:
 		self.log(f"Crawl completed successfully!")
 		self.log(f"Total pages crawled: {total_pages}")
 		self.log(f"Total crawl time: {crawl_time} seconds")
-		self.log(f"WARC file created: {warc_path}")
+		self.log(f"WARC file: {warc_path}")
 		self.log(f"Log file: {self.log_file_path}")
 
 	def log_crawl_error(self, error):
@@ -161,7 +392,6 @@ class CrawlLogger:
 			error (str): Error message
 		"""
 		self.log(f"Crawl failed: {error}", "ERROR")
-		self.log(f"Log file: {self.log_file_path}")
 
 def sanitize_metadata_field(text):
 	"""
@@ -202,7 +432,7 @@ def validate_url(url):
 
 	# Basic length check
 	if len(url) > 2048:
-		return False, None, "URL too long"
+		return False, None, "URL is too long"
 
 	# Check for valid URL format
 	parsed = urlparse(url)
@@ -286,7 +516,7 @@ def should_ignore_url(url):
 	Returns:
 		tuple: (should_ignore, matching_pattern, description)
 	"""
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT pattern, description FROM ignore_patterns WHERE enabled = 1')
 	patterns = cursor.fetchall()
@@ -309,7 +539,7 @@ def load_default_ignore_patterns(cursor):
 	Args:
 		cursor: Database cursor for executing queries
 	"""
-	default_file = os.path.join(os.path.dirname(__file__), 'default_ignores.tsv')
+	default_file = cfg.get('general', 'default_ignores')
 
 	if not os.path.exists(default_file):
 		return
@@ -337,7 +567,7 @@ def load_default_ignore_patterns(cursor):
 				# Validate pattern
 				is_valid, error_msg = validate_regex_pattern(pattern)
 				if not is_valid:
-					print(f"[WARN]  Invalid pattern in default_ignores.tsv line {line_num}: {error_msg}", file=sys.stderr)
+					print(f"[WARN] Invalid pattern in default_ignores.tsv line {line_num}: {error_msg}", file=sys.stderr)
 					continue
 
 				# Check if pattern already exists
@@ -360,7 +590,7 @@ def init_db():
 	- Archives: crawled archive information
 	- Ignore patterns: regex patterns for URL exclusion during crawling
 	"""
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 
 	# Create archives table
@@ -393,14 +623,36 @@ def init_db():
 	# Load default ignore patterns from TSV file
 	load_default_ignore_patterns(cursor)
 
-
 	conn.commit()
 	conn.close()
 
 # Global variables to store crawl progress
 crawl_progress = {}
 crawl_stats = {}
-crawl_abort_flags = {}  # Track which crawls should be aborted
+crawl_abort_flags = {}
+
+def clear_crawl_state(url=None):
+	"""
+	Clear global crawl state variables for a specific URL or all URLs.
+	
+	Args:
+		url (str, optional): Specific URL to clear state for. If None, clears all state.
+	"""
+	global crawl_progress, crawl_stats, crawl_abort_flags
+	
+	if url:
+		# Clear state for specific URL
+		crawl_abort_flags.pop(url, None)
+		crawl_stats.pop(url, None)
+		# Remove all progress entries that start with this URL
+		urls_to_remove = [k for k in crawl_progress.keys() if k.startswith(url) or url in k]
+		for k in urls_to_remove:
+			crawl_progress.pop(k, None)
+	else:
+		# Clear all state
+		crawl_progress.clear()
+		crawl_stats.clear()
+		crawl_abort_flags.clear()
 
 def rewrite_html_urls(html_content, archive_id, base_url):
 	"""
@@ -417,7 +669,7 @@ def rewrite_html_urls(html_content, archive_id, base_url):
 	soup = BeautifulSoup(html_content, 'html.parser')
 
 	# Get all URLs from the WARC archive
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT warc_file FROM archives WHERE id = ?', (archive_id,))
 	archive_result = cursor.fetchone()
@@ -440,7 +692,7 @@ def rewrite_html_urls(html_content, archive_id, base_url):
 	except:
 		return html_content
 
-	# Rewrite img src attributes
+	# Rewrite img src and srcset attributes
 	for img in soup.find_all('img', src=True):
 		original_src = img['src']
 		absolute_url = urljoin(base_url, original_src)
@@ -515,7 +767,7 @@ def rewrite_css_urls(css_content, archive_id, base_url):
 	"""
 
 	# Get all URLs from the WARC archive
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT warc_file FROM archives WHERE id = ?', (archive_id,))
 	archive_result = cursor.fetchone()
@@ -585,6 +837,7 @@ class WebCrawler:
 		self.temp_dir = None
 		self.warc_file = None
 		self.logger = None  # Will be initialized in crawl() method
+		self.driver = None  # Selenium WebDriver for Advanced mode
 
 	def is_same_host(self, url):
 		"""
@@ -618,6 +871,195 @@ class WebCrawler:
 		if not url_path.startswith(self.base_path):
 			return False
 		return True
+
+	def infer_content_type_from_url(self, url, current_content_type=None):
+		"""
+		Infer content type from URL file extension if current content type is missing or incorrect.
+
+		Args:
+			url (str): The URL to analyze
+			current_content_type (str): Current content type (if any)
+
+		Returns:
+			str: Inferred or corrected content type
+		"""
+		# If we have a proper content type, use it
+		if current_content_type and current_content_type.strip():
+			return current_content_type
+
+		# Otherwise, try to infer from URL extension
+		parsed_url = urlparse(url)
+		path = parsed_url.path.lower()
+
+		if path.endswith('.png'):
+			return 'image/png'
+		elif path.endswith('.jpg') or path.endswith('.jpeg'):
+			return 'image/jpeg'
+		elif path.endswith('.gif'):
+			return 'image/gif'
+		elif path.endswith('.webp'):
+			return 'image/webp'
+		elif path.endswith('.svg'):
+			return 'image/svg+xml'
+		elif path.endswith('.ico'):
+			return 'image/x-icon'
+		elif path.endswith('.bmp'):
+			return 'image/bmp'
+		elif path.endswith('.tiff') or path.endswith('.tif'):
+			return 'image/tiff'
+		elif path.endswith('.css'):
+			return 'text/css'
+		elif path.endswith('.js'):
+			return 'application/javascript'
+		elif path.endswith('.json'):
+			return 'application/json'
+		elif path.endswith('.xml'):
+			return 'application/xml'
+		elif path.endswith('.pdf'):
+			return 'application/pdf'
+		elif path.endswith('.zip'):
+			return 'application/zip'
+		elif path.endswith('.mp4'):
+			return 'video/mp4'
+		elif path.endswith('.webm'):
+			return 'video/webm'
+		elif path.endswith('.ogg'):
+			return 'video/ogg'
+		elif path.endswith('.mp3'):
+			return 'audio/mpeg'
+		elif path.endswith('.wav'):
+			return 'audio/wav'
+		elif path.endswith('.woff'):
+			return 'font/woff'
+		elif path.endswith('.woff2'):
+			return 'font/woff2'
+		elif path.endswith('.ttf'):
+			return 'font/ttf'
+		elif path.endswith('.eot'):
+			return 'application/vnd.ms-fontobject'
+		elif path.endswith('.otf'):
+			return 'font/otf'
+		else:
+			return 'application/octet-stream'
+
+	def get_file_extension_from_content_type(self, content_type, url_path=None):
+		"""
+		Get appropriate file extension from content type and optionally URL path.
+		
+		Args:
+			content_type (str): The MIME content type
+			url_path (str): Optional URL path to extract extension from
+			
+		Returns:
+			str: Appropriate file extension (e.g., '.css', '.js', '.png')
+		"""
+		if not content_type:
+			return '.bin'
+			
+		content_type_lower = content_type.lower()
+		
+		# CSS files
+		if 'css' in content_type_lower:
+			return '.css'
+		
+		# JavaScript files
+		elif 'javascript' in content_type_lower or 'ecmascript' in content_type_lower:
+			return '.js'
+		
+		# Images - try to get specific extension from content type
+		elif 'image/' in content_type_lower:
+			if 'png' in content_type_lower:
+				return '.png'
+			elif 'jpeg' in content_type_lower or 'jpg' in content_type_lower:
+				return '.jpg'
+			elif 'gif' in content_type_lower:
+				return '.gif'
+			elif 'webp' in content_type_lower:
+				return '.webp'
+			elif 'svg' in content_type_lower:
+				return '.svg'
+			elif 'ico' in content_type_lower:
+				return '.ico'
+			elif 'bmp' in content_type_lower:
+				return '.bmp'
+			elif 'tiff' in content_type_lower:
+				return '.tiff'
+			else:
+				# Try to get extension from URL path, fallback to .bin
+				if url_path:
+					ext = os.path.splitext(url_path)[1]
+					if ext:
+						return ext
+				return '.bin'
+		
+		# Fonts - try to get specific extension from content type
+		elif 'font/' in content_type_lower:
+			if 'woff2' in content_type_lower:
+				return '.woff2'
+			elif 'woff' in content_type_lower:
+				return '.woff'
+			elif 'ttf' in content_type_lower:
+				return '.ttf'
+			elif 'otf' in content_type_lower:
+				return '.otf'
+			elif 'eot' in content_type_lower:
+				return '.eot'
+			else:
+				# Try to get extension from URL path, fallback to .font
+				if url_path:
+					ext = os.path.splitext(url_path)[1]
+					if ext:
+						return ext
+				return '.font'
+		
+		# Video files
+		elif 'video/' in content_type_lower:
+			if 'mp4' in content_type_lower:
+				return '.mp4'
+			elif 'webm' in content_type_lower:
+				return '.webm'
+			elif 'ogg' in content_type_lower:
+				return '.ogg'
+			else:
+				return '.bin'
+		
+		# Audio files
+		elif 'audio/' in content_type_lower:
+			if 'mpeg' in content_type_lower or 'mp3' in content_type_lower:
+				return '.mp3'
+			elif 'wav' in content_type_lower:
+				return '.wav'
+			elif 'ogg' in content_type_lower:
+				return '.ogg'
+			else:
+				return '.bin'
+		
+		# Documents
+		elif 'application/pdf' in content_type_lower:
+			return '.pdf'
+		elif 'application/zip' in content_type_lower:
+			return '.zip'
+		elif 'application/json' in content_type_lower:
+			return '.json'
+		elif 'application/xml' in content_type_lower or 'text/xml' in content_type_lower:
+			return '.xml'
+		
+		# Text files
+		elif 'text/html' in content_type_lower:
+			return '.html'
+		elif 'text/plain' in content_type_lower:
+			return '.txt'
+		elif 'text/csv' in content_type_lower:
+			return '.csv'
+		
+		# Try to get extension from URL path if available
+		if url_path:
+			ext = os.path.splitext(url_path)[1]
+			if ext:
+				return ext
+		
+		# Default fallback
+		return '.bin'
 
 	def extract_links(self, html_content, base_url):
 		"""
@@ -720,6 +1162,583 @@ class WebCrawler:
 
 		return list(set(links))  # Remove duplicates
 
+	def _wait_for_dynamic_content(self, driver):
+		"""
+		Wait for dynamic content to load by checking various indicators.
+
+		Args:
+			driver: Selenium WebDriver instance
+
+		Returns:
+			bool: True if dynamic content appears to be loaded
+		"""
+		try:
+			# Check if jQuery is loaded and no active AJAX requests
+			jquery_ready = driver.execute_script("""
+				if (typeof jQuery !== 'undefined') {
+					return jQuery.active === 0;
+				}
+				return true;
+			""")
+
+			# Check if common loading indicators are gone
+			loading_indicators = [
+				'[class*="loading"]',
+				'[id*="loading"]',
+				'[class*="spinner"]',
+				'[id*="spinner"]',
+				'.loading',
+				'#loading'
+			]
+
+			loading_elements = 0
+			for selector in loading_indicators:
+				try:
+					elements = driver.find_elements(By.CSS_SELECTOR, selector)
+					loading_elements += len(elements)
+				except:
+					pass
+
+			# Check if select elements have options (common for dynamic dropdowns)
+			selects_with_options = driver.execute_script("""
+				var selects = document.querySelectorAll('select');
+				var populatedSelects = 0;
+				for (var i = 0; i < selects.length; i++) {
+					if (selects[i].options.length > 1) {
+						populatedSelects++;
+					}
+				}
+				return populatedSelects;
+			""")
+
+			# Check for Selectize.js elements (common dropdown library)
+			selectize_ready = driver.execute_script("""
+				var selectizeElements = document.querySelectorAll('.selectize-dropdown, .selectize-input');
+				var populatedSelectize = 0;
+				for (var i = 0; i < selectizeElements.length; i++) {
+					var element = selectizeElements[i];
+					// Check if Selectize dropdown has options
+					var options = element.querySelectorAll('.option, .selectize-dropdown-content .option');
+					if (options.length > 1) { // More than just placeholder
+						populatedSelectize++;
+					}
+				}
+				return populatedSelectize;
+			""")
+
+			# Check for other common dynamic dropdown libraries
+			other_dropdowns = driver.execute_script("""
+				var dropdowns = document.querySelectorAll('.dropdown-menu, .chosen-drop, .select2-results');
+				var populatedDropdowns = 0;
+				for (var i = 0; i < dropdowns.length; i++) {
+					var dropdown = dropdowns[i];
+					var options = dropdown.querySelectorAll('li, .option, a');
+					if (options.length > 1) {
+						populatedDropdowns++;
+					}
+				}
+				return populatedDropdowns;
+			""")
+
+			# Only log if we found something interesting or there are issues
+			if self.logger and (loading_elements > 0 or selects_with_options > 0 or selectize_ready > 0 or other_dropdowns > 0):
+				self.logger.log(f"Dynamic content found - Loading: {loading_elements}, Selects: {selects_with_options}, Selectize: {selectize_ready}, Other dropdowns: {other_dropdowns}", "DEBUG")
+
+			# Consider content loaded if:
+			# 1. jQuery is ready (no active requests) AND
+			# 2. No loading indicators visible AND
+			# 3. Either no dynamic elements found OR at least one is populated
+			has_dynamic_elements = (driver.execute_script("return document.querySelectorAll('select').length") > 0 or
+								   driver.execute_script("return document.querySelectorAll('.selectize-dropdown, .dropdown-menu, .chosen-drop, .select2-results').length") > 0)
+
+			return (jquery_ready and loading_elements == 0 and
+					(not has_dynamic_elements or selects_with_options > 0 or selectize_ready > 0 or other_dropdowns > 0))
+
+		except Exception as e:
+			if self.logger:
+				self.logger.log(f"Error in dynamic content check: {str(e)}", "DEBUG")
+			# If there's an error, assume content is ready
+			return True
+
+	def _extract_js_links(self, driver, base_url):
+		"""
+		Extract links from JavaScript-generated content like select options and dropdown libraries.
+
+		Args:
+			driver: Selenium WebDriver instance
+			base_url: Base URL for resolving relative links
+
+		Returns:
+			list: List of URLs found in JavaScript-generated content
+		"""
+		links = []
+		try:
+			# Extract links from select option values that look like URLs
+			select_links = driver.execute_script("""
+				var links = [];
+				var selects = document.querySelectorAll('select');
+				for (var i = 0; i < selects.length; i++) {
+					var select = selects[i];
+					for (var j = 0; j < select.options.length; j++) {
+						var option = select.options[j];
+						var value = option.value;
+						// Check if the value looks like a URL or path
+						if (value && (value.startsWith('http') || value.startsWith('/') || value.startsWith('./'))) {
+							links.push(value);
+						}
+					}
+				}
+				return links;
+			""")
+
+			# Extract links from Selectize.js dropdown options
+			selectize_links = driver.execute_script("""
+				var links = [];
+				var selectizeOptions = document.querySelectorAll('.selectize-dropdown .option, .selectize-dropdown-content .option');
+				for (var i = 0; i < selectizeOptions.length; i++) {
+					var option = selectizeOptions[i];
+					var value = option.getAttribute('data-value') || option.textContent;
+					if (value && (value.startsWith('http') || value.startsWith('/') || value.startsWith('./'))) {
+						links.push(value);
+					}
+				}
+				return links;
+			""")
+
+			# Extract links from other common dropdown libraries
+			other_dropdown_links = driver.execute_script("""
+				var links = [];
+				// Chosen.js
+				var chosenOptions = document.querySelectorAll('.chosen-drop .active-result');
+				for (var i = 0; i < chosenOptions.length; i++) {
+					var option = chosenOptions[i];
+					var value = option.getAttribute('data-option-array-index') || option.textContent;
+					if (value && (value.startsWith('http') || value.startsWith('/') || value.startsWith('./'))) {
+						links.push(value);
+					}
+				}
+				// Select2
+				var select2Options = document.querySelectorAll('.select2-results .select2-result-label');
+				for (var i = 0; i < select2Options.length; i++) {
+					var option = select2Options[i];
+					var value = option.getAttribute('data-select2-id') || option.textContent;
+					if (value && (value.startsWith('http') || value.startsWith('/') || value.startsWith('./'))) {
+						links.push(value);
+					}
+				}
+				// Generic dropdown menus
+				var dropdownOptions = document.querySelectorAll('.dropdown-menu a, .dropdown-menu li');
+				for (var i = 0; i < dropdownOptions.length; i++) {
+					var option = dropdownOptions[i];
+					var value = option.getAttribute('href') || option.getAttribute('data-value') || option.textContent;
+					if (value && (value.startsWith('http') || value.startsWith('/') || value.startsWith('./'))) {
+						links.push(value);
+					}
+				}
+				return links;
+			""")
+
+			# Extract links from any data attributes that might contain URLs
+			data_links = driver.execute_script("""
+				var links = [];
+				var elements = document.querySelectorAll('[data-url], [data-href], [data-link]');
+				for (var i = 0; i < elements.length; i++) {
+					var element = elements[i];
+					var url = element.getAttribute('data-url') || 
+							 element.getAttribute('data-href') || 
+							 element.getAttribute('data-link');
+					if (url) {
+						links.push(url);
+					}
+				}
+				return links;
+			""")
+
+			# Combine all link sources
+			all_js_links = select_links + selectize_links + other_dropdown_links + data_links
+
+			# Convert relative URLs to absolute URLs
+			for link in all_js_links:
+				if link and not link.startswith('data:'):
+					absolute_url = urljoin(base_url, link).split('#')[0]
+					if self.is_same_host(absolute_url):
+						links.append(absolute_url)
+
+			# Only log if we found something interesting
+			if self.logger and links:
+				self.logger.log(f"Found {len(links)} links from JavaScript content (select: {len(select_links)}, selectize: {len(selectize_links)}, other: {len(other_dropdown_links)}, data: {len(data_links)})", "DEBUG")
+
+			return list(set(links))  # Remove duplicates
+
+		except Exception as e:
+			if self.logger:
+				self.logger.log(f"Error extracting JS links: {str(e)}", "DEBUG")
+			return []
+
+	def crawl_page_selenium(self, url):
+		"""
+		Crawl a single page using Selenium WebDriver for JavaScript-powered sites.
+		For non-HTML resources (fonts, images, etc.), falls back to regular HTTP download.
+
+		Args:
+			url (str): The URL to crawl
+
+		Returns:
+			int or None: HTTP status code if successful, None if error
+		"""
+		# Check if crawl should be aborted
+		if crawl_abort_flags.get(self.start_url, False):
+			return None
+
+		# Check if URL should be ignored
+		should_ignore, matching_pattern, description = should_ignore_url(url)
+		if should_ignore:
+			# Update progress to show skipped URL
+			crawl_progress[url] = {
+				'status': 'skipped',
+				'message': f'Skipped (matches pattern: {description or matching_pattern})',
+				'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+			}
+			# Log the skip
+			if self.logger:
+				self.logger.log_url_skip(url, f'matches pattern: {description or matching_pattern}')
+			self.visited_urls.add(url)
+			return 200  # Return 200 to indicate "processed" (even though skipped)
+
+		# Check content type to determine if this is a non-HTML resource
+		content_type = 'text/html'  # Default assumption
+		is_non_html = False
+
+		# Skip HEAD request for data URLs since they are inline data, not HTTP resources
+		if url.startswith('data:'):
+			# Extract content type from data URL if present
+			if ';' in url:
+				content_type = url.split(';')[0].split(':')[1] if ':' in url else ''
+			else:
+				content_type = ''
+
+			# Check if it's a non-HTML resource
+			if content_type and not content_type.startswith('text/html'):
+				is_non_html = True
+				if self.logger:
+					self.logger.log(f"Detected non-HTML data URL (Content-Type: {content_type}): {url[:100]}...", "DEBUG")
+		else:
+			try:
+				# Make a HEAD request to get the actual content type
+				headers = {'User-Agent': cfg.get('simple', 'user_agent')}
+				response = make_http_request_with_retry('head', url, logger=self.logger, timeout=int(cfg.get('connections', 'timeout')), allow_redirects=True, headers=headers)
+				content_type = response.headers.get('content-type', '').lower()
+				
+				# Infer content type from URL if needed
+				content_type = self.infer_content_type_from_url(url, content_type)
+
+				# Check if it's a non-HTML resource
+				if content_type and not content_type.startswith('text/html'):
+					is_non_html = True
+					if self.logger:
+						self.logger.log(f"Detected non-HTML resource (Content-Type: {content_type}): {url}", "DEBUG")
+
+			except Exception as e:
+				# If HEAD request fails, assume it's HTML and proceed with Selenium
+				if self.logger:
+					self.logger.log(f"HEAD request failed for {url}, assuming HTML: {str(e)}", "DEBUG")
+
+		try:
+			if is_non_html:
+				# Handle data URLs specially since they don't require HTTP requests
+				if url.startswith('data:'):
+					if self.logger:
+						self.logger.log(f"Processing data URL directly: {url[:100]}...", "DEBUG")
+
+					# Parse data URL to extract content
+					import base64
+					if ',' in url:
+						header, data = url.split(',', 1)
+						# Extract content type from header
+						if ';' in header:
+							actual_content_type = header.split(';')[0].split(':')[1] if ':' in header else ''
+						else:
+							actual_content_type = ''
+
+						# Decode base64 data if needed
+						if 'base64' in header:
+							try:
+								content_bytes = base64.b64decode(data)
+							except Exception as e:
+								if self.logger:
+									self.logger.log(f"Failed to decode base64 data URL: {str(e)}", "WARN")
+								return None
+						else:
+							# URL-encoded data
+							import urllib.parse
+							content_bytes = urllib.parse.unquote(data).encode('utf-8')
+
+						final_url = url
+						status_code = 200
+
+						# Log the crawl attempt
+						if self.logger:
+							self.logger.log_url_crawl(url, status_code, actual_content_type, len(content_bytes))
+
+						# Update progress
+						crawl_progress[url] = {
+							'status': 'crawled',
+							'status_code': status_code,
+							'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+						}
+
+						# Determine file extension and create filename
+						ext = self.get_file_extension_from_content_type(actual_content_type)
+
+						filename = f"{len(self.crawled_pages):04d}_data_url{ext}"
+						filepath = os.path.join(self.temp_dir, filename)
+
+						# Write content to file
+						with open(filepath, 'wb') as f:
+							f.write(content_bytes)
+
+						# Log the crawl with actual size
+						if self.logger:
+							self.logger.log_url_crawl(url, status_code, actual_content_type, len(content_bytes))
+
+						# For text content, also collect it for link extraction
+						text_content = ""
+						if 'text/' in actual_content_type or 'application/javascript' in actual_content_type or 'application/css' in actual_content_type:
+							text_content = content_bytes.decode('utf-8', errors='ignore')
+
+						# Extract links from text content
+						links = []
+						if text_content:
+							links = self.extract_links(text_content, final_url)
+							if 'css' in actual_content_type:
+								css_links = self.extract_css_links(text_content, final_url)
+								links.extend(css_links)
+
+						# Store page info for later WARC creation
+						self.crawled_pages.append({
+							'url': url,
+							'filepath': filepath,
+							'status_code': status_code,
+							'content_type': actual_content_type
+						})
+						self.visited_urls.add(url)
+
+						# Add discovered links to the queue
+						for link in links:
+							if link not in self.visited_urls and link not in self.to_visit:
+								self.to_visit.append(link)
+
+						return status_code
+					else:
+						if self.logger:
+							self.logger.log(f"Invalid data URL format: {url[:100]}...", "WARN")
+						return None
+				else:
+					# For non-HTML resources, download directly using requests
+					headers = {'User-Agent': cfg.get('simple', 'user_agent')}
+					response = make_http_request_with_retry('get', url, logger=self.logger, timeout=int(cfg.get('connections', 'timeout')), allow_redirects=True, headers=headers, stream=True)
+					final_url = response.url
+					status_code = response.status_code
+					actual_content_type = response.headers.get('content-type', content_type)
+
+					# Get content length for size checking
+					content_length = response.headers.get('Content-Length')
+
+					# Update progress
+					crawl_progress[url] = {
+						'status': 'crawled',
+						'status_code': status_code,
+						'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+					}
+
+					# Determine file extension and create filename
+					parsed_url = urlparse(url)
+					path = parsed_url.path
+					ext = self.get_file_extension_from_content_type(actual_content_type, path)
+
+					filename = f"{len(self.crawled_pages):04d}_{path.replace('/', '_')}{ext}"
+					filepath = os.path.join(self.temp_dir, filename)
+
+					# Stream content to file and collect text for link extraction
+					text_content = ""
+					actual_size = 0
+					if 'text/' in actual_content_type or 'application/javascript' in actual_content_type or 'application/css' in actual_content_type:
+						# Stream text content and collect it for link extraction
+						with open(filepath, 'w', encoding='utf-8') as f:
+							for chunk in response.iter_content(chunk_size=8192):
+								if chunk:  # Filter out keep-alive chunks
+									# Decode bytes to string if needed
+									if isinstance(chunk, bytes):
+										chunk = chunk.decode('utf-8', errors='ignore')
+									f.write(chunk)
+									text_content += chunk
+									actual_size += len(chunk.encode('utf-8'))  # Count bytes, not characters
+					else:
+						# Stream binary content directly to file
+						with open(filepath, 'wb') as f:
+							for chunk in response.iter_content(chunk_size=8192):
+								if chunk:  # Filter out keep-alive chunks
+									f.write(chunk)
+									actual_size += len(chunk)
+
+					# Update the crawl log with actual size
+					if self.logger and actual_size > 0:
+						self.logger.log_url_crawl(url, status_code, actual_content_type, actual_size)
+
+					# Extract links from text content
+					links = []
+					if text_content:
+						links = self.extract_links(text_content, final_url)
+						if 'css' in actual_content_type:
+							css_links = self.extract_css_links(text_content, final_url)
+							links.extend(css_links)
+
+					# Store page info for later WARC creation
+					self.crawled_pages.append({
+						'url': url,
+						'filepath': filepath,
+						'status_code': status_code,
+						'content_type': actual_content_type
+					})
+					self.visited_urls.add(url)
+
+					# Add discovered links to the queue
+					for link in links:
+						if link not in self.visited_urls and link not in self.to_visit:
+							self.to_visit.append(link)
+
+					return status_code
+
+			else:
+				# For HTML pages, use Selenium for JavaScript rendering
+				self.driver.get(url)
+
+				# Wait for page to load and get final URL (after redirects)
+				WebDriverWait(self.driver, 10).until(
+					lambda driver: driver.execute_script("return document.readyState") == "complete"
+				)
+
+				final_url = self.driver.current_url
+
+				# Wait for JavaScript to finish loading dynamic content
+				try:
+					# Wait for common indicators that dynamic content has loaded
+					WebDriverWait(self.driver, 15).until(
+						lambda driver: self._wait_for_dynamic_content(driver)
+					)
+				except TimeoutException:
+					if self.logger:
+						self.logger.log("Timeout waiting for dynamic content, proceeding anyway", "WARN")
+
+				page_source = self.driver.page_source
+				page_content = page_source
+				status_code = 200  # Selenium doesn't provide HTTP status codes directly
+				actual_content_type = self.infer_content_type_from_url(url, content_type)
+
+				# Log the crawl attempt
+				if self.logger:
+					self.logger.log_url_crawl(url, status_code, actual_content_type, str(len(page_source)))
+
+				# Update progress
+				crawl_progress[url] = {
+					'status': 'crawled',
+					'status_code': status_code,
+					'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+				}
+
+				# Determine file extension and create filename
+				parsed_url = urlparse(url)
+				path = parsed_url.path
+				ext = self.get_file_extension_from_content_type(actual_content_type, path)
+
+				filename = f"{len(self.crawled_pages):04d}_{path.replace('/', '_')}{ext}"
+				filepath = os.path.join(self.temp_dir, filename)
+
+				# Save content
+				with open(filepath, 'w', encoding='utf-8') as f:
+					f.write(page_source)
+
+				# Extract links from HTML page source
+				links = self.extract_links(page_content, final_url)
+
+			# For HTML pages, log select info if we found interesting elements
+			if not is_non_html and self.logger:
+				select_info = self.driver.execute_script("""
+					var selects = document.querySelectorAll('select');
+					var selectData = [];
+					for (var i = 0; i < selects.length; i++) {
+						var select = selects[i];
+						selectData.push({
+							id: select.id || 'no-id',
+							name: select.name || 'no-name',
+							className: select.className || 'no-class',
+							optionCount: select.options.length,
+							options: Array.from(select.options).map(opt => opt.value + ':' + opt.text)
+						});
+					}
+					return selectData;
+				""")
+				# Only log if we found select elements with multiple options or interesting classes
+				interesting_selects = [s for s in select_info if s['optionCount'] > 1 or 'selectize' in s['className'].lower()]
+				if interesting_selects:
+					self.logger.log(f"Found {len(interesting_selects)} populated select elements: {interesting_selects}", "DEBUG")
+
+			# For HTML pages, also extract links from JavaScript-generated content
+			js_links = []
+			if not is_non_html:
+				# Also extract links from JavaScript-generated content (select options, etc.)
+				js_links = self._extract_js_links(self.driver, final_url)
+				if js_links:
+					links.extend(js_links)
+
+			# Only log link extraction summary if we found JavaScript links or many total links
+			if self.logger and (js_links or len(links) > 10):
+				self.logger.log(f"Extracted {len(links)} total links ({len(js_links)} from JavaScript content)", "DEBUG")
+
+			new_links_count = 0
+			for link in links:
+				# Check if link should be ignored before adding to queue
+				should_ignore, matching_pattern, description = should_ignore_url(link)
+				if should_ignore:
+					# Mark as skipped in progress
+					crawl_progress[link] = {
+						'status': 'skipped',
+						'message': f'Skipped (matches pattern: {description or matching_pattern})',
+						'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+					}
+					self.visited_urls.add(link)
+				elif link not in self.visited_urls and link not in self.to_visit:
+					self.to_visit.append(link)
+					new_links_count += 1
+
+			# Update stats with newly discovered URLs
+			if new_links_count > 0:
+				crawl_stats[self.start_url]['total_discovered'] = len(self.visited_urls) + len(self.to_visit)
+				# Log links discovery
+				if self.logger:
+					self.logger.log_links_discovered(url, new_links_count)
+
+			self.crawled_pages.append({
+				'url': url,
+				'filepath': filepath,
+				'status_code': status_code,
+				'content_type': actual_content_type
+			})
+
+			self.visited_urls.add(url)
+			return status_code
+
+		except Exception as e:
+			crawl_progress[url] = {
+				'status': 'error',
+				'error': str(e),
+				'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+			}
+			# Log the error
+			if self.logger:
+				self.logger.log_url_error(url, str(e))
+			return None
+
 	def crawl_page(self, url):
 		"""
 		Crawl a single page and extract its content and links.
@@ -733,7 +1752,7 @@ class WebCrawler:
 		# Check if crawl should be aborted
 		if crawl_abort_flags.get(self.start_url, False):
 			return None
-			
+
 		# Check if URL should be ignored
 		should_ignore, matching_pattern, description = should_ignore_url(url)
 		if should_ignore:
@@ -751,19 +1770,18 @@ class WebCrawler:
 
 		try:
 			headers = {
-				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.35 (KHTML, like Gecko) Chrome/116.1.0.9 Safari/537.35",
-				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-				"Accept-Language": "en-US,en;q=0.9"
+				"User-Agent": cfg.get('simple', 'user_agent'),
+				"Accept": cfg.get('simple', 'accept_header'),
+				"Accept-Language": cfg.get('simple', 'accept_language')
 			}
 
-			response = requests.head(url, allow_redirects=True, headers=headers)
+			response = make_http_request_with_retry('head', url, logger=self.logger, allow_redirects=True, headers=headers)
 			content_length = response.headers.get('Content-Length')
-			content_type = response.headers.get('content-type', 'text/html')
+			content_type = response.headers.get('content-type', '')
 			status_code = response.status_code
 
-			# Log the crawl attempt
-			if self.logger:
-				self.logger.log_url_crawl(url, status_code, content_type, content_length)
+			# Infer content type from URL if needed
+			content_type = self.infer_content_type_from_url(url, content_type)
 
 			# Check size of file
 			if self.max_size > 0:
@@ -780,42 +1798,50 @@ class WebCrawler:
 			# Determine file extension based on content type
 			parsed_url = urlparse(url)
 			path = parsed_url.path
-
-			# Get appropriate file extension
-			if 'css' in content_type:
-				ext = '.css'
-			elif 'javascript' in content_type or 'ecmascript' in content_type:
-				ext = '.js'
-			elif 'image/' in content_type:
-				ext = os.path.splitext(path)[1] or '.bin'
-			elif 'font/' in content_type:
-				ext = os.path.splitext(path)[1] or '.font'
-			else:
-				ext = os.path.splitext(path)[1] or '.html'
+			ext = self.get_file_extension_from_content_type(content_type, path)
 
 			# Create filename
 			filename = f"{len(self.crawled_pages):04d}_{path.replace('/', '_')}{ext}"
 			filepath = os.path.join(self.temp_dir, filename)
 
 			if status_code == 200:
-				# Get content
-				response = requests.get(url, timeout=10, allow_redirects=True, headers=headers)
+				# Get content using streaming to avoid memory issues with large files
+				response = make_http_request_with_retry('get', url, logger=self.logger, timeout=int(cfg.get('connections', 'timeout')), allow_redirects=True, headers=headers, stream=True)
 
-				# Save content (binary for non-text files)
+				# For text content, we need to collect it for link extraction
+				text_content = ""
+				actual_size = 0
 				if 'text/' in content_type or 'application/javascript' in content_type or 'application/css' in content_type:
+					# Stream text content and collect it for link extraction
 					with open(filepath, 'w', encoding='utf-8') as f:
-						f.write(response.text)
+						for chunk in response.iter_content(chunk_size=8192):
+							if chunk:  # Filter out keep-alive chunks
+								# Decode bytes to string if needed
+								if isinstance(chunk, bytes):
+									chunk = chunk.decode('utf-8', errors='ignore')
+								f.write(chunk)
+								text_content += chunk
+								actual_size += len(chunk.encode('utf-8'))  # Count bytes, not characters
 				else:
+					# Stream binary content directly to file
 					with open(filepath, 'wb') as f:
-						f.write(response.content)
+						for chunk in response.iter_content(chunk_size=8192):
+							if chunk:  # Filter out keep-alive chunks
+								f.write(chunk)
+								actual_size += len(chunk)
+
+				# Log the crawl with actual size
+				if self.logger and actual_size > 0:
+					self.logger.log_url_crawl(url, status_code, content_type, actual_size)
 
 				# Extract links for further crawling
-				if self.mode == 'simple':
-					links = self.extract_links(response.text, url)
+				# Always extract links from text content (HTML, CSS, JS) regardless of mode
+				if 'text/' in content_type or 'application/javascript' in content_type or 'application/css' in content_type:
+					links = self.extract_links(text_content, response.url)
 
 					# Also extract links from CSS files
 					if 'css' in content_type:
-						css_links = self.extract_css_links(response.text, url)
+						css_links = self.extract_css_links(text_content, response.url)
 						links.extend(css_links)
 
 					new_links_count = 0
@@ -873,7 +1899,7 @@ class WebCrawler:
 		Returns:
 			str: Path to the created WARC file
 		"""
-		warc_dir = "/data/archives"
+		warc_dir = cfg.get('general', 'archives_dir')
 		os.makedirs(warc_dir, exist_ok=True)
 
 		# Extract hostname from start URL
@@ -885,9 +1911,9 @@ class WebCrawler:
 		warc_filename = f"temp_{hostname}.warc"
 		warc_path = os.path.join(warc_dir, warc_filename)
 
-		# Log WARC creation
+		# Log WARC creation start
 		if self.logger:
-			self.logger.log_warc_creation(warc_path, len(self.crawled_pages))
+			self.logger.log(f"Total pages to archive: {len(self.crawled_pages)}")
 		with open(warc_path, 'wb') as output:
 			writer = WARCWriter(output, gzip=True)
 
@@ -921,6 +1947,11 @@ class WebCrawler:
 				)
 				writer.write_record(record)
 
+		# Log WARC file completion with size
+		if self.logger and os.path.exists(warc_path):
+			warc_size = os.path.getsize(warc_path)
+			self.logger.log(f"Pages archived successfully: {warc_path} ({warc_size:,} bytes)")
+
 		return warc_path
 
 	def crawl(self):
@@ -933,11 +1964,11 @@ class WebCrawler:
 		self.start_time = int(time.time())
 
         # Create temp directory
-		self.temp_dir = "/data/temp/crawler_{}".format(threading.get_ident())
+		self.temp_dir = "{}/crawler_{}".format(cfg.get('general', 'temp_dir'), threading.get_ident())
 		os.makedirs(self.temp_dir, exist_ok=True)
 
 		# Create log file path (will be alongside the WARC file)
-		warc_dir = "/data/archives"
+		warc_dir = cfg.get('general', 'archives_dir')
 		os.makedirs(warc_dir, exist_ok=True)
 		hostname = urlparse(self.start_url).netloc
 		if ':' in hostname:
@@ -948,6 +1979,19 @@ class WebCrawler:
 		# Initialize logger
 		self.logger = CrawlLogger(log_path)
 		self.logger.log_crawl_start(self.start_url, self.mode, self.max_size, self.niceness, self.restrictpage)
+
+		# Initialize WebDriver for Advanced mode
+		if self.mode == 'advanced':
+			if not SELENIUM_AVAILABLE:
+				self.logger.log("Selenium not available. Falling back to Simple mode.", "WARN")
+				self.mode = 'simple'
+			else:
+				try:
+					self.driver = create_webdriver()
+					self.logger.log("WebDriver initialized for Advanced mode", "INFO")
+				except Exception as e:
+					self.logger.log(f"Failed to initialize WebDriver: {str(e)}. Falling back to Simple mode.", "ERROR")
+					self.mode = 'simple'
 
 		# Initialize crawl stats
 		crawl_stats[self.start_url] = {
@@ -962,9 +2006,19 @@ class WebCrawler:
 				if crawl_abort_flags.get(self.start_url, False):
 					self.logger.log("Crawl aborted by user", "WARN")
 					crawl_stats[self.start_url]['status'] = 'aborted'
+					# Clean up WebDriver if used
+					if self.driver:
+						try:
+							self.driver.quit()
+							self.logger.log("WebDriver closed after abort", "INFO")
+						except Exception as e:
+							self.logger.log(f"Error closing WebDriver after abort: {str(e)}", "WARN")
 					# Clean up temp directory
 					if self.temp_dir and os.path.exists(self.temp_dir):
 						shutil.rmtree(self.temp_dir)
+					
+					# Clear global state for this crawl after abort
+					clear_crawl_state(self.start_url)
 					return
 
 				url = self.to_visit.pop(0)
@@ -973,7 +2027,11 @@ class WebCrawler:
 						'status': 'crawling',
 						'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 					}
-					self.crawl_page(url)
+					# Use appropriate crawling method based on mode
+					if self.mode == 'advanced' and self.driver:
+						self.crawl_page_selenium(url)
+					else:
+						self.crawl_page(url)
 
 					# Update stats
 					crawl_stats[self.start_url]['total_completed'] = len(self.visited_urls)
@@ -992,7 +2050,7 @@ class WebCrawler:
 				status = 'error: no page crawled.'
 
 			# Save to database
-			conn = sqlite3.connect('/data/db/crawler.db')
+			conn = sqlite3.connect(cfg.get('general', 'db_file'))
 			cursor = conn.cursor()
 			cursor.execute('''
 				INSERT INTO archives (url, mode, warc_file, log_file, pages_crawled, status, crawl_time, max_size)
@@ -1006,20 +2064,20 @@ class WebCrawler:
 			hostname = urlparse(self.start_url).netloc
 			if ':' in hostname:
 				hostname = hostname.split(':')[0]
-			new_filename = f"{archive_id:03d}_{hostname}.warc"
+			new_filename = f"{archive_id:04d}_{hostname}.warc"
 			new_path = os.path.join(os.path.dirname(self.warc_file), new_filename)
 			os.rename(self.warc_file, new_path)
 			self.warc_file = new_path
-			
+
 			# Also rename the log file
 			if hasattr(self, 'logger') and self.logger:
-				log_filename = f"{archive_id:03d}_{hostname}.log"
+				log_filename = f"{archive_id:04d}_{hostname}.log"
 				log_new_path = os.path.join(os.path.dirname(self.logger.log_file_path), log_filename)
 				os.rename(self.logger.log_file_path, log_new_path)
 				self.logger.log_file_path = log_new_path
 
 			# Update database with new filename
-			conn = sqlite3.connect('/data/db/crawler.db')
+			conn = sqlite3.connect(cfg.get('general', 'db_file'))
 			cursor = conn.cursor()
 			cursor.execute('UPDATE archives SET warc_file = ?, log_file = ? WHERE id = ?', (self.warc_file, self.logger.log_file_path, archive_id))
 			conn.commit()
@@ -1033,18 +2091,29 @@ class WebCrawler:
 			# Log completion
 			self.logger.log_crawl_complete(len(self.crawled_pages), (int(time.time()) - self.start_time), self.warc_file)
 
+			# Clean up WebDriver if used
+			if self.driver:
+				try:
+					self.driver.quit()
+					self.logger.log("WebDriver closed successfully", "INFO")
+				except Exception as e:
+					self.logger.log(f"Error closing WebDriver: {str(e)}", "WARN")
+
 			# Clean up temp directory
 			shutil.rmtree(self.temp_dir)
+			
+			# Clear global state for this crawl after successful completion
+			clear_crawl_state(self.start_url)
 
 		except Exception as e:
 			# Update status to error
 			traceback.print_exception(type(e), e, e.__traceback__, file=sys.stderr)
 			print("[ERROR] Crawl thread failed. Cleaning up.", file=sys.stderr)
-			
+
 			# Log the error if logger is available
 			if hasattr(self, 'logger') and self.logger:
 				self.logger.log_crawl_error(str(e))
-			conn = sqlite3.connect('/data/db/crawler.db')
+			conn = sqlite3.connect(cfg.get('general', 'db_file'))
 			cursor = conn.cursor()
 			log_file_path = self.logger.log_file_path if hasattr(self, 'logger') and self.logger else ''
 			cursor.execute('''
@@ -1054,10 +2123,21 @@ class WebCrawler:
 			conn.commit()
 			conn.close()
 
+			# Clean up WebDriver if used
+			if hasattr(self, 'driver') and self.driver:
+				try:
+					self.driver.quit()
+				except Exception:
+					pass  # Ignore errors during cleanup
+
 			if self.temp_dir and os.path.exists(self.temp_dir):
 				shutil.rmtree(self.temp_dir)
+			
+			# Clear global state for this crawl after error
+			clear_crawl_state(self.start_url)
 
 @app.route('/')
+@login_required
 def index():
 	"""
 	Main page route that displays the crawler interface and list of archives.
@@ -1065,36 +2145,15 @@ def index():
 	Returns:
 		Rendered HTML template with archives data
 	"""
-	try:
-		conn = sqlite3.connect('/data/db/crawler.db')
-		cursor = conn.cursor()
-		cursor.execute('SELECT * FROM archives ORDER BY created_at DESC')
-		archives = cursor.fetchall()
-		conn.close()
-		
-		return render_template('crawler.html', archives=archives)
-	except Exception as e:
-		print(f"Error in index route: {e}")
-		import traceback
-		traceback.print_exc()
-		return f"Error loading archives: {str(e)}", 500
-
-@app.route('/version')
-def get_version():
-	"""
-	Get application version information.
-
-	Returns:
-		JSON response with version details
-	"""
-	return jsonify({
-		'version': __version__,
-		'name': 'Web Crawler',
-		'description': 'This is a modern self-hosted web crawler application that creates WARC archives from web sites.'
-	})
-
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
+	cursor = conn.cursor()
+	cursor.execute('SELECT * FROM archives ORDER BY created_at DESC')
+	archives = cursor.fetchall()
+	conn.close()
+	return render_template('crawler.html', archives=archives)
 
 @app.route('/start_crawl', methods=['POST'])
+@login_required
 def start_crawl():
 	"""
 	Start a new web crawl with input validation and security checks.
@@ -1125,6 +2184,9 @@ def start_crawl():
 	niceness = request.form.get('niceness', 'true').lower() == 'true'
 	restrictpage = request.form.get('restrictpage', 'true').lower() == 'true'
 
+	# Clear any existing state for this URL before starting new crawl
+	clear_crawl_state(sanitized_url)
+	
 	# Start crawling in a separate thread
 	crawler = WebCrawler(sanitized_url, mode, max_size, niceness, restrictpage)
 	thread = threading.Thread(target=crawler.crawl)
@@ -1134,6 +2196,7 @@ def start_crawl():
 	return jsonify({'message': 'Crawl started', 'url': sanitized_url, 'mode': mode, 'max_size': max_size, 'niceness': niceness, 'restrictpage': restrictpage})
 
 @app.route('/progress')
+@login_required
 def get_progress():
 	"""
 	Get current crawl progress information for all active crawls.
@@ -1146,7 +2209,38 @@ def get_progress():
 		'stats': crawl_stats
 	})
 
+@app.route('/active_crawls')
+@login_required
+def get_active_crawls():
+	"""
+	Get information about currently active crawls.
+
+	Returns:
+		JSON response with active crawl information
+	"""
+	active_crawls = []
+
+	for url, stats in crawl_stats.items():
+		if stats.get('status') in ['running']:
+			# Get progress for this crawl
+			crawl_progress_data = {}
+			for progress_url, progress_data in crawl_progress.items():
+				if progress_url.startswith(url) or url in progress_url:
+					crawl_progress_data[progress_url] = progress_data
+
+			active_crawls.append({
+				'url': url,
+				'stats': stats,
+				'progress': crawl_progress_data
+			})
+
+	return jsonify({
+		'active_crawls': active_crawls,
+		'has_active_crawls': len(active_crawls) > 0
+	})
+
 @app.route('/abort_crawl', methods=['POST'])
+@login_required
 def abort_crawl():
 	"""
 	Abort an ongoing crawl process.
@@ -1158,16 +2252,22 @@ def abort_crawl():
 	if not url:
 		return jsonify({'error': 'URL is required'}), 400
 
+	# Validate URL format
+	is_valid, sanitized_url, error_msg = validate_url(url)
+	if not is_valid:
+		return jsonify({'error': error_msg}), 400
+
 	# Set abort flag for this URL
-	crawl_abort_flags[url] = True
+	crawl_abort_flags[sanitized_url] = True
 
 	# Update crawl stats to show aborted status
-	if url in crawl_stats:
-		crawl_stats[url]['status'] = 'aborted'
+	if sanitized_url in crawl_stats:
+		crawl_stats[sanitized_url]['status'] = 'aborted'
 
 	return jsonify({'message': 'Crawl abort requested', 'url': url})
 
 @app.route('/delete/<int:archive_id>', methods=['POST'])
+@login_required
 def delete_entry(archive_id):
 	"""
 	Start archive deletion in background with input validation.
@@ -1184,7 +2284,7 @@ def delete_entry(archive_id):
 		return jsonify({'error': error_msg}), 400
 
 	# Check if archive exists
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT id FROM archives WHERE id = ?', (sanitized_id,))
 	archive = cursor.fetchone()
@@ -1208,6 +2308,7 @@ def delete_entry(archive_id):
 	return jsonify({'message': 'Deletion started', 'archive_id': sanitized_id})
 
 @app.route('/delete_status/<int:archive_id>')
+@login_required
 def delete_status_check(archive_id):
 	"""
 	Get archive deletion status with input validation.
@@ -1299,7 +2400,7 @@ def delete_worker(archive_id):
 		}
 
 		# Get archive information
-		conn = sqlite3.connect('/data/db/crawler.db')
+		conn = sqlite3.connect(cfg.get('general', 'db_file'))
 		cursor = conn.cursor()
 		cursor.execute('SELECT warc_file, log_file FROM archives WHERE id = ?', (archive_id,))
 		archive = cursor.fetchone()
@@ -1442,6 +2543,7 @@ def ia_upload_worker(archive_id, title, description, warc_file):
 		print(f"[ERROR] Internet Archive upload error for archive {archive_id}: {str(e)}\n", file=sys.stderr)
 
 @app.route('/ia/<int:archive_id>', methods=['POST'])
+@login_required
 def ia_upload(archive_id):
 	"""
 	Start Internet Archive upload in background with input validation.
@@ -1473,7 +2575,7 @@ def ia_upload(archive_id):
 		return jsonify({'error': 'Title and description cannot be empty'}), 400
 
 	# Check if archive exists
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT warc_file FROM archives WHERE id = ?', (sanitized_id,))
 	archive = cursor.fetchone()
@@ -1500,6 +2602,7 @@ def ia_upload(archive_id):
 	return jsonify({'message': 'Upload started', 'archive_id': sanitized_id})
 
 @app.route('/ia_status/<int:archive_id>')
+@login_required
 def ia_upload_status(archive_id):
 	"""
 	Get Internet Archive upload status with input validation.
@@ -1524,6 +2627,7 @@ def ia_upload_status(archive_id):
 		return jsonify({'status': 'not_found', 'message': 'No upload found for this archive'}), 404
 
 @app.route('/archive_details/<int:archive_id>')
+@login_required
 def archive_details(archive_id):
 	"""
 	Get detailed information about a specific archive.
@@ -1539,7 +2643,7 @@ def archive_details(archive_id):
 	if not is_valid:
 		return jsonify({'error': error_msg}), 400
 
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT * FROM archives WHERE id = ?', (sanitized_id,))
 	archive = cursor.fetchone()
@@ -1565,6 +2669,7 @@ def archive_details(archive_id):
 	return jsonify(details)
 
 @app.route('/log_file/<int:archive_id>')
+@login_required
 def get_log_file(archive_id):
 	"""
 	Get the log file content for a specific archive.
@@ -1580,7 +2685,7 @@ def get_log_file(archive_id):
 	if not is_valid:
 		return jsonify({'error': error_msg}), 400
 
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT log_file FROM archives WHERE id = ?', (sanitized_id,))
 	archive = cursor.fetchone()
@@ -1606,6 +2711,7 @@ def get_log_file(archive_id):
 		return jsonify({'error': f'Error reading log file: {str(e)}'}), 500
 
 @app.route('/view_archive/<int:archive_id>')
+@login_required
 def view_archive(archive_id):
 	"""
 	Display a WARC archive viewer with list of all records in the archive.
@@ -1621,7 +2727,7 @@ def view_archive(archive_id):
 	if not is_valid:
 		return f"Invalid archive ID: {error_msg}", 400
 
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT * FROM archives WHERE id = ?', (sanitized_id,))
 	archive = cursor.fetchone()
@@ -1655,6 +2761,7 @@ def view_archive(archive_id):
 	return render_template('warc_viewer.html', archive=archive, records=records)
 
 @app.route('/view_file/<int:archive_id>/<int:record_index>')
+@login_required
 def view_file(archive_id, record_index):
 	"""
 	View a specific file/record from a WARC archive with URL rewriting.
@@ -1679,7 +2786,7 @@ def view_file(archive_id, record_index):
 	except (ValueError, TypeError):
 		return "Invalid record index format", 400
 
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT * FROM archives WHERE id = ?', (sanitized_id,))
 	archive = cursor.fetchone()
@@ -1703,6 +2810,10 @@ def view_file(archive_id, record_index):
 					status_code = int(record.http_headers.get_statuscode() or 0)
 
 					# Handle content based on type
+					content_size = len(content_bytes)
+					content = None
+					is_large_binary = False
+					
 					if content_type.startswith('text/') or content_type.startswith('application/javascript') or content_type.startswith('application/css'):
 						# Text content - decode as UTF-8
 						content = content_bytes.decode('utf-8', errors='ignore')
@@ -1712,22 +2823,36 @@ def view_file(archive_id, record_index):
 							content = rewrite_html_urls(content, sanitized_id, url)
 						elif content_type.startswith('text/css'):
 							content = rewrite_css_urls(content, sanitized_id, url)
+					elif content_type.startswith('image/'):
+						# Images - encode as base64 for display (but only if not too large)
+						max_image_size = int(cfg.get('connections', 'max_image_display_size'))
+						if content_size <= max_image_size:
+							content = base64.b64encode(content_bytes).decode('utf-8')
+						else:
+							is_large_binary = True
 					else:
-						# Binary content (images, etc.) - encode as base64
-						content = base64.b64encode(content_bytes).decode('utf-8')
+						# Other binary content - only encode if small, otherwise just mark as large binary
+						max_binary_size = int(cfg.get('connections', 'max_binary_display_size'))
+						if content_size <= max_binary_size:
+							content = base64.b64encode(content_bytes).decode('utf-8')
+						else:
+							is_large_binary = True
 
 					return render_template('file_viewer.html',
 						content=content,
 						content_type=content_type,
 						url=url,
 						status_code=status_code,
-						archive_id=sanitized_id)
+						archive_id=sanitized_id,
+						content_size=content_size,
+						is_large_binary=is_large_binary)
 
 		return "Record not found", 404
 	except Exception as e:
 		return f"Error reading WARC file: {str(e)}", 500
 
 @app.route('/raw_file/<int:archive_id>/<int:record_index>')
+@login_required
 def raw_file(archive_id, record_index):
 	"""
 	Serve raw file content from a WARC archive record with proper MIME types.
@@ -1752,7 +2877,7 @@ def raw_file(archive_id, record_index):
 	except (ValueError, TypeError):
 		return "Invalid record index format", 400
 
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT * FROM archives WHERE id = ?', (sanitized_id,))
 	archive = cursor.fetchone()
@@ -1797,6 +2922,7 @@ def raw_file(archive_id, record_index):
 		return f"Error reading WARC file: {str(e)}", 500
 
 @app.route('/ignore_patterns')
+@login_required
 def get_ignore_patterns():
 	"""
 	Get all ignore patterns for URL exclusion.
@@ -1804,7 +2930,7 @@ def get_ignore_patterns():
 	Returns:
 		JSON response with list of ignore patterns
 	"""
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT id, pattern, description, enabled, created_at FROM ignore_patterns ORDER BY created_at DESC')
 	patterns = cursor.fetchall()
@@ -1823,6 +2949,7 @@ def get_ignore_patterns():
 	return jsonify({'patterns': pattern_list})
 
 @app.route('/ignore_patterns', methods=['POST'])
+@login_required
 def add_ignore_pattern():
 	"""
 	Add a new ignore pattern with validation.
@@ -1844,7 +2971,7 @@ def add_ignore_pattern():
 		return jsonify({'error': error_msg}), 400
 
 	# Check if pattern already exists
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 	cursor.execute('SELECT id FROM ignore_patterns WHERE pattern = ?', (pattern,))
 	if cursor.fetchone():
@@ -1862,6 +2989,7 @@ def add_ignore_pattern():
 	return jsonify({'message': 'Pattern added successfully', 'id': pattern_id})
 
 @app.route('/ignore_patterns/<int:pattern_id>', methods=['PUT'])
+@login_required
 def update_ignore_pattern(pattern_id):
 	"""
 	Update an existing ignore pattern.
@@ -1891,7 +3019,7 @@ def update_ignore_pattern(pattern_id):
 		if not is_valid:
 			return jsonify({'error': error_msg}), 400
 
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 
 	# Check if pattern exists
@@ -1934,6 +3062,7 @@ def update_ignore_pattern(pattern_id):
 	return jsonify({'message': 'Pattern updated successfully'})
 
 @app.route('/ignore_patterns/<int:pattern_id>', methods=['DELETE'])
+@login_required
 def delete_ignore_pattern(pattern_id):
 	"""
 	Delete an ignore pattern.
@@ -1949,7 +3078,7 @@ def delete_ignore_pattern(pattern_id):
 	if not is_valid:
 		return jsonify({'error': error_msg}), 400
 
-	conn = sqlite3.connect('/data/db/crawler.db')
+	conn = sqlite3.connect(cfg.get('general', 'db_file'))
 	cursor = conn.cursor()
 
 	# Check if pattern exists
@@ -1979,44 +3108,35 @@ def changeserver(response):
 	response.headers['Server'] = "Unknown"
 	return response
 
-def ensure_directories():
-	"""
-	Ensure all required directories exist.
-	"""
-	directories = [
-		'/data',
-		'/data/db',
-		'/data/temp',
-		'/data/archives'
-	]
-	
-	for directory in directories:
-		os.makedirs(directory, exist_ok=True)
-		print(f"Ensured directory exists: {directory}")
-
 if __name__ == '__main__':
-	# Ensure directories exist
-	ensure_directories()
+	# Parse command line arguments
+	import argparse
+	parser = argparse.ArgumentParser(description='Web Crawler Application')
+	parser.add_argument('--config', '-c', help='Path to configuration file', 
+	                   default='/opt/crawler/config/crawler.cfg')
+	args = parser.parse_args()
 	
-	# Initialize database
+	cfg = load_config(args.config)
 	init_db()
 	
-	# Get SSL context if certificates exist
+	# Set Flask secret key from config
+	app.config['SECRET_KEY'] = cfg.get('general', 'secret_key')
+	
+	ssl_cert = cfg.get('general', 'ssl_cert')
+	ssl_key = cfg.get('general', 'ssl_key')
+
+	# Only use SSL if both cert and key are provided and not empty
 	ssl_context = None
-	cert_path = os.environ.get('SSL_CERT_PATH', '/etc/certs/wildcard.dendory.net.crt')
-	key_path = os.environ.get('SSL_KEY_PATH', '/etc/certs/wildcard.dendory.net.key')
-	
-	if os.path.exists(cert_path) and os.path.exists(key_path):
-		ssl_context = (cert_path, key_path)
-		print(f"SSL enabled with certificates: {cert_path}, {key_path}")
-	else:
-		print("SSL disabled - certificates not found")
-	
-	# Get host and port from environment
-	host = os.environ.get('FLASK_HOST', '0.0.0.0')
-	port = int(os.environ.get('FLASK_PORT', 8080))
-	
-	print(f"Starting Web Crawler v{__version__} on {host}:{port}")
-	
-	# Run the application
-	app.run(host=host, port=port, ssl_context=ssl_context, threaded=True)
+	if ssl_cert and ssl_key and ssl_cert.strip() and ssl_key.strip():
+		# Check if both files actually exist
+		if os.path.exists(ssl_cert) and os.path.exists(ssl_key):
+			ssl_context = (ssl_cert, ssl_key)
+		else:
+			print(f"Warning: SSL certificate or key file not found. SSL disabled.", file=sys.stderr)
+
+	app.run(
+		host=cfg.get('general', 'ip_address'),
+		port=int(cfg.get('general', 'port')),
+		ssl_context=ssl_context,
+		threaded=True
+	)

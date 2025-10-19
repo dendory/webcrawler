@@ -65,7 +65,7 @@
                                     <label for="mode" class="form-label">Crawl Mode</label>
                                     <select class="form-select" id="mode" name="mode">
                                         <option value="simple">Simple</option>
-                                        <option value="advanced" disabled>Advanced (Coming Soon)</option>
+                                        <option value="advanced">Advanced</option>
                                     </select>
                                 </div>
                                 <div class="col-md-2">
@@ -216,6 +216,7 @@
         let currentCrawlThread = null;
         let isCrawlAborted = false;
         
+        
         document.getElementById('crawlForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
@@ -244,9 +245,11 @@
             document.getElementById('submitBtn').disabled = true;
             document.getElementById('submitBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Crawling...';
             
-            // Show progress section
+            // Show progress section and reset progress display
             document.getElementById('progressSection').classList.remove('d-none');
             document.getElementById('progressList').innerHTML = '';
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressBar').textContent = '';
             
             // Start progress polling
             progressInterval = setInterval(updateProgress, 1000);
@@ -307,6 +310,7 @@
                 if (data.error) {
                     alert('Error aborting crawl: ' + data.error);
                 } else {
+                    // Immediately reset form when abort is successful
                     resetForm();
                 }
             })
@@ -417,6 +421,12 @@
             if (progressInterval) {
                 clearInterval(progressInterval);
             }
+            
+            // Hide progress section and clear progress list
+            document.getElementById('progressSection').classList.add('d-none');
+            document.getElementById('progressList').innerHTML = '';
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressBar').textContent = '';
             
             // Reset abort state
             isCrawlAborted = false;
@@ -1170,7 +1180,9 @@
 		    }
 
 		    fetch(`/ignore_patterns/${patternId}`, {
-		        method: 'DELETE'
+		        method: 'DELETE',
+		        headers: {
+		        }
 		    })
 		    .then(response => response.json())
 		    .then(data => {
@@ -1191,6 +1203,68 @@
 		    div.textContent = text;
 		    return div.innerHTML;
 		}
+
+		// Functions to handle active crawl reconnection
+		function checkForActiveCrawls() {
+		    fetch('/active_crawls')
+		        .then(response => response.json())
+		        .then(data => {
+		            if (data.has_active_crawls && data.active_crawls.length > 0) {
+		                // Found active crawls - reconnect to the first one
+		                const activeCrawl = data.active_crawls[0];
+		                reconnectToCrawl(activeCrawl);
+		            }
+		        })
+		        .catch(error => {
+		            console.error('Error checking for active crawls:', error);
+		        });
+		}
+
+		function reconnectToCrawl(crawlData) {
+		    // Set the current crawl URL
+		    currentCrawlUrl = crawlData.url;
+		    
+		    // Show progress section
+		    document.getElementById('progressSection').classList.remove('d-none');
+		    document.getElementById('progressList').innerHTML = '';
+		    
+		    // Disable form to prevent new crawls
+		    document.getElementById('submitBtn').disabled = true;
+		    document.getElementById('submitBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Crawling...';
+		    
+		    // Start progress polling
+		    progressInterval = setInterval(updateProgress, 1000);
+		    
+		    // Show a notification that we reconnected
+		    showReconnectNotification(crawlData.url);
+		}
+
+		function showReconnectNotification(url) {
+		    // Create a notification banner
+		    const notification = document.createElement('div');
+		    notification.className = 'alert alert-info alert-dismissible fade show';
+		    notification.innerHTML = `
+		        <i class="fas fa-info-circle"></i>
+		        Reconnected to active crawl: <strong>${escapeHtml(url)}</strong>
+		        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+		    `;
+		    
+		    // Insert at the top of the container
+		    const container = document.querySelector('.container-fluid');
+		    container.insertBefore(notification, container.firstChild);
+		    
+		    // Auto-dismiss after 5 seconds
+		    setTimeout(() => {
+		        if (notification.parentNode) {
+		            notification.remove();
+		        }
+		    }, 5000);
+		}
+
+		// Check for active crawls when page loads
+		document.addEventListener('DOMContentLoaded', function() {
+		    checkForActiveCrawls();
+		});
     </script>
 </body>
 </html>

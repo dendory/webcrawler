@@ -1,23 +1,34 @@
 # Web Crawler Docker Image
-FROM python:3.11-slim
+FROM ubuntu:22.04
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install Python 3.10 (default in Ubuntu 22.04) and system dependencies
 RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-driver \
+    python3 \
+    python3-pip \
+    python3-venv \
+    chromium-browser \
+    chromium-chromedriver \
     curl \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
+# Create symlinks for python and pip
+RUN ln -s /usr/bin/python3 /usr/bin/python
+
 # Create app directory
 WORKDIR /opt/crawler/app
 
-# Create necessary directories
-RUN mkdir -p /opt/crawler/{archives,db,temp,config}
+# Create necessary directories with proper permissions
+RUN mkdir -p /opt/crawler/archives /opt/crawler/db /opt/crawler/temp /opt/crawler/config && \
+    chmod 755 /opt/crawler/archives && \
+    chmod 755 /opt/crawler/db && \
+    chmod 755 /opt/crawler/temp && \
+    chmod 755 /opt/crawler/config
 
 # Copy requirements.txt
 COPY requirements.txt /opt/crawler/app/

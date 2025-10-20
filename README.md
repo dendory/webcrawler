@@ -2,6 +2,10 @@
 
 This is a modern self-hosted web crawler application that creates WARC archives from web sites with a WARC viewer.
 
+![](screenshot1.jpg)
+
+![](screenshot2.jpg)
+
 ## Features
 
 - **Simple and Advanced crawling modes**: Basic HTTP requests or Chromium-based crawling

@@ -139,13 +139,13 @@ def make_http_request_with_retry(method, url, logger=None, **kwargs):
 						continue
 				
 				# If we've been getting 429s for too long, give up
-				if (current_time - last_429_time) < rate_limit_retry_duration:
+				if (current_time - last_429_time) > rate_limit_retry_duration:
 					if logger:
 						logger.log(f"Rate limited (429) for {url} for too long, giving up after {attempt + 1} attempts", "WARN")
 					response.raise_for_status()
 			
 			# For other temporary errors, check if we should retry
-			elif response.status_code >= 500 or response.status_code in [408, 429]:
+			elif response.status_code >= 500 or response.status_code == 408:
 				if attempt < max_retries:
 					# Calculate exponential backoff delay
 					delay = min(base_delay * (2 ** attempt), max_delay)

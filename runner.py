@@ -23,7 +23,7 @@ def load_config(config_file=None):
 		configparser.ConfigParser: Loaded configuration object
 	"""
 	config = configparser.ConfigParser()
-	
+
 	# Use provided config file or default location
 	if config_file is None:
 		config_file = os.path.join(os.path.dirname(__file__), 'crawler.cfg')
@@ -49,7 +49,7 @@ if __name__ == '__main__':
 	parser.add_argument('--config', '-c', help='Path to configuration file', 
 	                   default='/opt/crawler/config/crawler.cfg')
 	args = parser.parse_args()
-	
+
 	# Load configuration
 	cfg = load_config(args.config)
 	dbname = cfg.get('general', 'db_file')
@@ -84,10 +84,10 @@ if process_new_files:
 	except subprocess.CalledProcessError as e:
 		log.error(f"Error finding files in {crawlsdir}: {e}")
 		files = ""
-	
+
 	for file in files.split('\n'): # Iterate files in folder
 		if file != crawlsdir:
-			if ".warc" in file or ".WARC" in file:
+			if ".warc" in str(file).lower() and "temp_" not in str(file).lower():
 				rows = cur.execute("SELECT COUNT(*) FROM archives WHERE warc_file = ?;", [file]).fetchall()
 				if rows[0][0] == 0: # File isn't already in the database
 					try:

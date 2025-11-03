@@ -758,6 +758,61 @@ def rewrite_html_urls(html_content, archive_id, base_url):
 		if absolute_url in url_to_index:
 			frame['src'] = f'/view_file/{archive_id}/{url_to_index[absolute_url]}'
 
+	# Convert <frameset> structures into <div> + <iframe> layout
+	frameset = soup.find('frameset')
+	if frameset:
+		# Extract frame definitions
+		colspec = frameset.get('cols')
+		rowspec = frameset.get('rows')
+		frames = frameset.find_all('frame', src=True)
+
+		# Create replacement container
+		new_container = soup.new_tag('div')
+		new_container['class'] = 'frameset'
+		new_container['style'] = 'width:100%; height:100%; display:flex; flex-direction:{};'.format(
+			'column' if rowspec else 'row'
+		)
+
+		# Parse column widths if any
+		size_specs = []
+		if colspec:
+			size_specs = [c.strip() for c in colspec.split(',')]
+		elif rowspec:
+			size_specs = [r.strip() for r in rowspec.split(',')]
+
+		for i, frame in enumerate(frames):
+			src = frame['src']
+			name = frame.get('name', '')
+			iframe = soup.new_tag('iframe', src=src)
+			if name:
+				iframe['name'] = name
+			iframe['style'] = 'border:none; height:100%;'
+
+			# Apply width/height according to frameset specs
+			if size_specs:
+				size = size_specs[i] if i < len(size_specs) else '*'
+				if size.endswith('*'):
+					# Flexible
+					iframe['style'] += ' flex:1;'
+				elif size.endswith('%'):
+					if rowspec:
+						iframe['style'] += f' height:{size};'
+					else:
+						iframe['style'] += f' width:{size};'
+				else:
+					# Fixed pixel size
+					if rowspec:
+						iframe['style'] += f' height:{size}px;'
+					else:
+						iframe['style'] += f' width:{size}px;'
+			else:
+				iframe['style'] += ' flex:1;'
+
+			new_container.append(iframe)
+
+		# Replace frameset with new container
+		frameset.replace_with(new_container)
+
 	return str(soup)
 
 def rewrite_css_urls(css_content, archive_id, base_url):

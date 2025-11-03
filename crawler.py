@@ -751,6 +751,13 @@ def rewrite_html_urls(html_content, archive_id, base_url):
 		if absolute_url in url_to_index:
 			script['src'] = f'/raw_file/{archive_id}/{url_to_index[absolute_url]}'
 
+	# Rewrite frame and iframe src attributes (viewer-friendly URLs)
+	for frame in soup.find_all(['frame', 'iframe'], src=True):
+		original_src = frame['src']
+		absolute_url = urljoin(base_url, original_src)
+		if absolute_url in url_to_index:
+			frame['src'] = f'/view_file/{archive_id}/{url_to_index[absolute_url]}'
+
 	return str(soup)
 
 def rewrite_css_urls(css_content, archive_id, base_url):
@@ -1114,6 +1121,13 @@ class WebCrawler:
 			font_url = font_url.strip()
 			if font_url and not font_url.startswith('data:'):  # Skip data URLs
 				absolute_url = urljoin(base_url, font_url).split('#')[0]
+				links.append(absolute_url)
+
+		# Extract frames and iframes (same host, same folder)
+		for frame in soup.find_all(['frame', 'iframe'], src=True):
+			src = frame['src']
+			absolute_url = urljoin(base_url, src).split('#')[0]
+			if self.is_same_host_and_folder(absolute_url):
 				links.append(absolute_url)
 
 		# Extract other resources (same host, any folder)

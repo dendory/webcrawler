@@ -756,7 +756,7 @@ def rewrite_html_urls(html_content, archive_id, base_url):
 		original_src = frame['src']
 		absolute_url = urljoin(base_url, original_src)
 		if absolute_url in url_to_index:
-			frame['src'] = f'/view_file/{archive_id}/{url_to_index[absolute_url]}'
+			frame['src'] = f'/raw_file/{archive_id}/{url_to_index[absolute_url]}'
 
 	# Convert <frameset> structures into <div> + <iframe> layout
 	frameset = soup.find('frameset')

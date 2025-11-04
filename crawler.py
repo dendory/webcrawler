@@ -2036,6 +2036,7 @@ class WebCrawler:
 			next_page = allpages_url
 
 			while next_page:
+				self.logger.log(f"Processing wiki page: {next_page}", "DEBUG")
 				resp = make_http_request_with_retry("get", next_page, logger=self.logger, headers=headers)
 				if resp.status_code != 200:
 					self.logger.log(f"Failed to fetch {next_page} (status {resp.status_code})", "ERROR")
@@ -2045,7 +2046,6 @@ class WebCrawler:
 
 				# Extract article links (skip Special:, Talk:, etc.)
 				for a in soup.select("a[href^='/wiki/']"):
-					self.logger.log(f"Processing: {a}", "DEBUG")
 
 					href = a.get("href")
 					if any(href.startswith(prefix) for prefix in [

@@ -343,7 +343,7 @@
                     const timeA = new Date(a[1].timestamp || 0);
                     const timeB = new Date(b[1].timestamp || 0);
                     return timeB - timeA;
-                });
+                })
                 .slice(0, 1000); // only take the latest 1000 entries
 
                 // Clear previous progress

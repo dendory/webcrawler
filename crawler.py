@@ -362,7 +362,7 @@ class CrawlLogger:
 			links_count (int): Number of new links discovered
 		"""
 		if links_count > 0:
-			self.log(f"Discovered {links_count} new links from: {url}")
+			self.log(f"Discovered {links_count} new links from: {url}", "DEBUG")
 
 	def log_warc_creation(self, warc_path, pages_count):
 		"""
@@ -2030,7 +2030,8 @@ class WebCrawler:
 			else:
 				allpages_url = url
 
-			self.logger.log(f"Starting Wiki crawl from {allpages_url}", "INFO")
+			if self.logger:
+				self.logger.log(f"Starting Wiki crawl from {allpages_url}", "INFO")
 
 			all_article_links = set()
 			next_page = allpages_url
@@ -2080,7 +2081,8 @@ class WebCrawler:
 				else:
 					next_page = None
 
-			self.logger.log(f"Discovered {len(all_article_links)} wiki article pages", "INFO")
+			if self.logger:
+				self.logger.log_links_discovered(allpages_url, len(all_article_links))
 
 			# Now crawl each discovered article page (non-recursive)
 			for article_url in sorted(all_article_links):
@@ -2153,9 +2155,10 @@ class WebCrawler:
 
 					if 'text/html' in content_type:
 						# Extract media links
-						html_content = resp.content.decode('utf-8', errors='ignore')
-						media_links = self.extract_media_links(html_content, article_url)
-						self.logger.log(f"Discovered {len(media_links)} media resources [{len(resp.text)}]", "INFO")
+						text_content = resp.content.decode('utf-8', errors='ignore')
+						media_links = self.extract_media_links(text_content, base_root)
+						if self.logger:
+							self.logger.log_links_discovered(article_url, len(media_links))
 
 						for media_url in media_links:
 
@@ -2170,8 +2173,9 @@ class WebCrawler:
 							time.sleep(0.5 if self.niceness else 0)
 
 						# Extract CSS files
-						css_links = self.extract_css_links(html_content, article_url)
-						self.logger.log(f"Discovered {len(css_links)} css resources", "INFO")
+						css_links = self.extract_css_links(text_content, base_root)
+						if self.logger:
+							self.logger.log_links_discovered(article_url, len(css_links))
 
 						for css_url in css_links:
 
@@ -2193,7 +2197,8 @@ class WebCrawler:
 						'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 					}
 
-			self.logger.log(f"Wiki crawl completed. {len(self.crawled_pages)} pages archived.", "INFO")
+			if self.logger:
+				self.logger.log(f"Wiki crawl completed. {len(self.crawled_pages)} pages archived.", "INFO")
 			return 200 if self.crawled_pages else 204
 
 		except Exception as e:

@@ -2152,18 +2152,20 @@ class WebCrawler:
 					self.logger.log_url_crawl(article_url, resp.status_code, content_type, len(resp.content))
 
 					# Extract only media links (no recursion to more wiki pages)
-					if 'text/html' in content_type:
-						media_links = self.extract_media_links(resp.text, article_url)
-						for media_url in media_links:
-							should_ignore, pattern, description = should_ignore_url(media_url)
-							if should_ignore:
-								continue
+					media_links = self.extract_media_links(resp.text, article_url)
+					self.logger.log(f"Discovered {len(media_links)} media resources", "INFO")
 
-							if media_url not in self.visited_urls:
-								self.visited_urls.add(media_url)
-								self.crawl_page(media_url)
+					for media_url in media_links:
 
-					time.sleep(0.5 if self.niceness else 0)
+						should_ignore, pattern, description = should_ignore_url(media_url)
+						if should_ignore:
+							continue
+
+						if media_url not in self.visited_urls:
+							self.visited_urls.add(media_url)
+							self.crawl_page(media_url)
+
+						time.sleep(0.5 if self.niceness else 0)
 
 				except Exception as e:
 					self.logger.log_url_error(article_url, str(e))

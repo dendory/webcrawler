@@ -1961,6 +1961,179 @@ class WebCrawler:
 				self.logger.log_url_error(url, str(e))
 			return None
 
+	def crawl_page_wiki(self, url):
+		"""
+		Crawl MediaWiki sites efficiently by parsing from Special:AllPages.
+
+		This method avoids recursively discovering links and instead
+		only crawls the article pages listed in the Special:AllPages view.
+
+		Args:
+			url (str): The URL to crawl (usually the main page or Special:AllPages).
+		"""
+		try:
+			headers = {
+				"User-Agent": cfg.get('simple', 'user_agent'),
+				"Accept": cfg.get('simple', 'accept_header'),
+				"Accept-Language": cfg.get('simple', 'accept_language')
+			}
+
+			# Determine base wiki root
+			parsed = urlparse(self.start_url)
+			base_root = f"{parsed.scheme}://{parsed.netloc}"
+
+			# Identify the Special:AllPages URL
+			if "Special:AllPages" not in url:
+				allpages_url = urljoin(base_root, "/wiki/Special:AllPages")
+			else:
+				allpages_url = url
+
+			self.logger.log(f"Starting Wiki crawl from {allpages_url}", "INFO")
+
+			all_article_links = set()
+			next_page = allpages_url
+
+			while next_page:
+				resp = make_http_request_with_retry("get", next_page, logger=self.logger, headers=headers)
+				if resp.status_code != 200:
+					self.logger.log(f"Failed to fetch {next_page} (status {resp.status_code})", "WARN")
+					break
+
+				soup = BeautifulSoup(resp.text, "html.parser")
+
+				# Extract article links (skip Special:, Talk:, etc.)
+				for a in soup.select("a[href^='/wiki/']"):
+					href = a.get("href")
+					if any(href.startswith(prefix) for prefix in [
+						"/wiki/Special:",
+						"/wiki/Talk:",
+						"/wiki/User:",
+						"/wiki/Help:",
+						"/wiki/Category:",
+						"/wiki/File:",
+						"/wiki/Template:"
+					]):
+						continue
+					full_url = urljoin(base_root, href)
+
+					if not self.is_same_host(full_url):
+						continue
+
+					all_article_links.add(full_url)
+
+				# Find "next page" link in pagination
+				next_link = soup.select_one("a[href*='from=']:not([href^='#'])")
+				if next_link:
+					next_page = urljoin(base_root, next_link["href"])
+				else:
+					next_page = None
+
+			self.logger.log(f"Discovered {len(all_article_links)} wiki article pages", "INFO")
+
+			# Now crawl each discovered article page (non-recursive)
+			for article_url in sorted(all_article_links):
+				if crawl_abort_flags.get(self.start_url, False):
+					self.logger.log("Crawl aborted by user during Wiki crawl", "WARN")
+					break
+
+				is_valid, safe_article_url, err = validate_url(article_url)
+				if not is_valid:
+					if self.logger:
+						self.logger.log(f"Skipping invalid wiki article URL: {err}", "WARN")
+					continue
+				article_url = safe_article_url
+
+				should_ignore, pattern, description = should_ignore_url(article_url)
+				if should_ignore:
+					if self.logger:
+						self.logger.log_url_skip(article_url, f"matches pattern: {description or pattern}")
+					crawl_progress[article_url] = {
+						'status': 'skipped',
+						'message': f'Skipped (matches pattern: {description or pattern})',
+						'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+					}
+					continue
+
+				if article_url in self.visited_urls:
+					continue
+
+				self.visited_urls.add(article_url)
+				crawl_progress[article_url] = {
+					'status': 'crawling',
+					'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+				}
+
+				try:
+					head_resp = make_http_request_with_retry('head', article_url, logger=self.logger, headers=headers, allow_redirects=True)
+					content_length = head_resp.headers.get('Content-Length')
+					if self.max_size > 0 and content_length and int(content_length) > self.max_size:
+						self.logger.log_url_skip(article_url, "skipped due to size limit")
+						crawl_progress[article_url] = {
+							'status': 'skipped',
+							'message': 'Skipped (too large)',
+							'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+						}
+						continue
+
+					# Perform a simple fetch similar to crawl_page but no recursion
+					resp = make_http_request_with_retry("get", article_url, logger=self.logger, headers=headers)
+					content_type = resp.headers.get("content-type", "")
+					file_ext = self.get_file_extension_from_content_type(content_type, urlparse(article_url).path)
+
+					safe_path = re.sub(r'[^a-zA-Z0-9._-]', '_', urlparse(article_url).path)
+					filename = f"{len(self.crawled_pages):04d}_{safe_path}{file_ext}"
+					filepath = os.path.join(self.temp_dir, filename)
+
+					with open(filepath, 'wb') as f:
+						f.write(resp.content)
+
+					self.crawled_pages.append({
+						"url": article_url,
+						"filepath": filepath,
+						"status_code": resp.status_code,
+						"content_type": content_type
+					})
+
+					crawl_progress[article_url]['status'] = 'crawled'
+					crawl_progress[article_url]['status_code'] = resp.status_code
+
+					self.logger.log_url_crawl(article_url, resp.status_code, content_type, len(resp.content))
+
+					# Extract only media links (no recursion to more wiki pages)
+					if 'text/html' in content_type:
+						links = self.extract_links(resp.text, article_url)
+						media_links = [
+							l for l in links
+							if any(l.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'])
+							or 'upload' in l.lower()  # handles typical wiki media paths
+						]
+						for media_url in media_links:
+							should_ignore, pattern, description = should_ignore_url(media_url)
+							if should_ignore:
+								continue
+
+							if media_url not in self.visited_urls:
+								self.visited_urls.add(media_url)
+								self.crawl_page(media_url)
+
+					time.sleep(0.5 if self.niceness else 0)
+
+				except Exception as e:
+					self.logger.log_url_error(article_url, str(e))
+					crawl_progress[article_url] = {
+						'status': 'error',
+						'error': str(e),
+						'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+					}
+
+			self.logger.log(f"Wiki crawl completed. {len(self.crawled_pages)} pages archived.", "INFO")
+			return 200 if self.crawled_pages else 204
+
+		except Exception as e:
+			self.logger.log_crawl_error(f"Wiki crawl failed: {str(e)}")
+			traceback.print_exception(type(e), e, e.__traceback__)
+			return None
+
 	def create_warc_archive(self):
 		"""
 		Create a WARC archive from all crawled pages.
@@ -2032,7 +2205,6 @@ class WebCrawler:
 		"""
 		self.start_time = int(time.time())
 
-        # Create temp directory
 		self.temp_dir = "{}/crawler_{}".format(cfg.get('general', 'temp_dir'), threading.get_ident())
 		os.makedirs(self.temp_dir, exist_ok=True)
 
@@ -2099,6 +2271,8 @@ class WebCrawler:
 					# Use appropriate crawling method based on mode
 					if self.mode == 'advanced' and self.driver:
 						self.crawl_page_selenium(url)
+					elif self.mode == 'wiki':
+						self.crawl_page_wiki(url)
 					else:
 						self.crawl_page(url)
 
@@ -2110,7 +2284,6 @@ class WebCrawler:
 					if self.niceness:
 						time.sleep(0.5)
 
-            # Create WARC archive
 			self.warc_file = self.create_warc_archive()
 
 			# Check if any page were archived

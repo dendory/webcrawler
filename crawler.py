@@ -1123,9 +1123,54 @@ class WebCrawler:
 		# Default fallback
 		return '.bin'
 
+	def extract_media_links(self, html_content, base_url):
+		"""
+		Extract media (images, audio, video) URLs from HTML content.
+
+		Args:
+			html_content (str): HTML content to parse
+			base_url (str): Base URL for resolving relative links
+
+		Returns:
+			list: List of absolute URLs for media files
+		"""
+		soup = BeautifulSoup(html_content, 'html.parser')
+		links = []
+
+		# Images
+		for img in soup.find_all('img', src=True):
+			links.append(urljoin(base_url, img['src']))
+		for img in soup.find_all('img', srcset=True):
+			for candidate in img['srcset'].split(','):
+				parts = candidate.strip().split()
+				if parts:
+					links.append(urljoin(base_url, parts[0]))
+
+		# Videos
+		for video in soup.find_all('video', src=True):
+			links.append(urljoin(base_url, video['src']))
+		for source in soup.find_all('source', src=True):
+			links.append(urljoin(base_url, source['src']))
+
+		# Audio
+		for audio in soup.find_all('audio', src=True):
+			links.append(urljoin(base_url, audio['src']))
+
+		# Picture sources
+		for source in soup.find_all('source', srcset=True):
+			for candidate in source['srcset'].split(','):
+				parts = candidate.strip().split()
+				if parts:
+					links.append(urljoin(base_url, parts[0]))
+
+		# Deduplicate and filter to same host
+		links = [l.split('#')[0] for l in links if self.is_same_host(l)]
+		return list(set(links))
+
 	def extract_links(self, html_content, base_url):
 		"""
-		Extract all resource links from HTML content for further crawling.
+		Extract all resource links from HTML content for further crawling,
+		excluding media which is handled by extract_media_links().
 
 		Args:
 			html_content (str): The HTML content to parse
@@ -1137,55 +1182,41 @@ class WebCrawler:
 		soup = BeautifulSoup(html_content, 'html.parser')
 		links = []
 
-		# Extract regular page links (same host, same folder)
+		# --- Page links (same host, same folder) ---
 		for link in soup.find_all('a', href=True):
 			href = link['href']
 			absolute_url = urljoin(base_url, href).split('#')[0]
 			if self.is_same_host_and_folder(absolute_url):
 				links.append(absolute_url)
 
-		# Extract CSS files (any host, any folder)
+		# --- CSS files (any host) ---
 		for link in soup.find_all('link', rel='stylesheet', href=True):
 			href = link['href']
 			absolute_url = urljoin(base_url, href).split('#')[0]
 			links.append(absolute_url)
 
-		# Extract JavaScript files (any host, any folder)
+		# --- JavaScript files (any host) ---
 		for script in soup.find_all('script', src=True):
 			src = script['src']
 			absolute_url = urljoin(base_url, src).split('#')[0]
 			links.append(absolute_url)
 
-		# Extract images (any host, any folder)
-		for img in soup.find_all('img', src=True):
-			src = img['src']
-			absolute_url = urljoin(base_url, src).split('#')[0]
-			links.append(absolute_url)
-		for img in soup.find_all('img', srcset=True):
-			candidates = [s.strip() for s in img['srcset'].split(',')]
-			for candidate in candidates:
-				parts = candidate.strip().split()
-				if parts:
-					srcset_url = parts[0]  # the URL part
-					absolute_url = urljoin(base_url, srcset_url).split('#')[0]
-					links.append(absolute_url)
-
-		# Extract fonts from CSS @font-face rules (any host, any folder)
+		# --- Fonts from CSS @font-face rules ---
 		font_urls = re.findall(r'url\(["\']?([^"\'()]+)["\']?\)', html_content)
 		for font_url in font_urls:
 			font_url = font_url.strip()
-			if font_url and not font_url.startswith('data:'):  # Skip data URLs
+			if font_url and not font_url.startswith('data:'):
 				absolute_url = urljoin(base_url, font_url).split('#')[0]
 				links.append(absolute_url)
 
-		# Extract frames and iframes (same host, same folder)
+		# --- Frames and iframes (same host, same folder) ---
 		for frame in soup.find_all(['frame', 'iframe'], src=True):
 			src = frame['src']
 			absolute_url = urljoin(base_url, src).split('#')[0]
 			if self.is_same_host_and_folder(absolute_url):
 				links.append(absolute_url)
 
-		# Extract other resources (same host, any folder)
+		# --- Icons / favicons (same host) ---
 		for link in soup.find_all('link', href=True):
 			rel = link.get('rel', [])
 			if 'icon' in rel or 'shortcut' in rel:
@@ -1194,7 +1225,11 @@ class WebCrawler:
 				if self.is_same_host(absolute_url):
 					links.append(absolute_url)
 
-		return list(set(links))  # Remove duplicates
+		# --- Media links (images, audio, video) ---
+		media_links = self.extract_media_links(html_content, base_url)
+		links.extend(media_links)
+
+		return list(set(links))  # Deduplicate
 
 	def extract_css_links(self, css_content, base_url):
 		"""
@@ -2077,7 +2112,7 @@ class WebCrawler:
 
 					# Perform a simple fetch similar to crawl_page but no recursion
 					resp = make_http_request_with_retry("get", article_url, logger=self.logger, headers=headers)
-					content_type = resp.headers.get("content-type", "")
+					content_type = self.infer_content_type_from_url(article_url, resp.headers.get("content-type", ""))
 					file_ext = self.get_file_extension_from_content_type(content_type, urlparse(article_url).path)
 
 					safe_path = re.sub(r'[^a-zA-Z0-9._-]', '_', urlparse(article_url).path)
@@ -2101,12 +2136,7 @@ class WebCrawler:
 
 					# Extract only media links (no recursion to more wiki pages)
 					if 'text/html' in content_type:
-						links = self.extract_links(resp.text, article_url)
-						media_links = [
-							l for l in links
-							if any(l.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'])
-							or 'upload' in l.lower()  # handles typical wiki media paths
-						]
+						media_links = self.extract_media_links(resp.text, article_url)
 						for media_url in media_links:
 							should_ignore, pattern, description = should_ignore_url(media_url)
 							if should_ignore:

@@ -55,8 +55,15 @@ def login_required(f):
 	"""Decorator to require authentication for routes"""
 	@wraps(f)
 	def decorated_function(*args, **kwargs):
+		# From localhost
+		if request.remote_addr in ('127.0.0.1', '::1'):
+			return f(*args, **kwargs)
+
+		# Not authenticated
 		if not session.get('authenticated'):
 			return redirect(url_for('login'))
+
+		# Authenticated
 		return f(*args, **kwargs)
 	return decorated_function
 

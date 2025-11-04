@@ -2151,9 +2151,9 @@ class WebCrawler:
 
 					self.logger.log_url_crawl(article_url, resp.status_code, content_type, len(resp.content))
 
-					# Extract only media links (no recursion to more wiki pages)
+					# Extract media links
 					media_links = self.extract_media_links(resp.text, article_url)
-					self.logger.log(f"Discovered {len(media_links)} media resources", "INFO")
+					self.logger.log(f"Discovered {len(media_links)} media resources [{len(resp.text)}]", "INFO")
 
 					for media_url in media_links:
 
@@ -2164,6 +2164,22 @@ class WebCrawler:
 						if media_url not in self.visited_urls:
 							self.visited_urls.add(media_url)
 							self.crawl_page(media_url)
+
+						time.sleep(0.5 if self.niceness else 0)
+
+					# Extract CSS files
+					css_links = self.extract_css_links(text_content, response.url)
+					self.logger.log(f"Discovered {len(css_links)} css resources", "INFO")
+
+					for css_url in css_links:
+
+						should_ignore, pattern, description = should_ignore_url(css_url)
+						if should_ignore:
+							continue
+
+						if css_url not in self.visited_urls:
+							self.visited_urls.add(css_url)
+							self.crawl_page(css_url)
 
 						time.sleep(0.5 if self.niceness else 0)
 

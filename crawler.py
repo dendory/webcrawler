@@ -2038,7 +2038,7 @@ class WebCrawler:
 			while next_page:
 				resp = make_http_request_with_retry("get", next_page, logger=self.logger, headers=headers)
 				if resp.status_code != 200:
-					self.logger.log(f"Failed to fetch {next_page} (status {resp.status_code})", "WARN")
+					self.logger.log(f"Failed to fetch {next_page} (status {resp.status_code})", "ERROR")
 					break
 
 				soup = BeautifulSoup(resp.text, "html.parser")

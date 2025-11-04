@@ -2069,10 +2069,10 @@ class WebCrawler:
 				nav_div = soup.select_one("div.mw-allpages-nav")
 				if nav_div:
 					nav_links = nav_div.select("a[href*='from=']")
-					if len(links) > 1:
+					if len(nav_links) > 1:
 						next_link = nav_links[-1]
 						next_page = urljoin(base_root, next_link["href"])
-					elif next_page == allpages_url and len(links) > 0:
+					elif next_page == allpages_url and len(nav_links) > 0:
 						next_link = nav_links[-1]
 						next_page = urljoin(base_root, next_link["href"])
 					else:

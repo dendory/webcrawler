@@ -2066,9 +2066,17 @@ class WebCrawler:
 					all_article_links.add(full_url)
 
 				# Find "next page" link in pagination
-				next_link = soup.select_one("a[href*='from=']:not([href^='#'])")
-				if next_link:
-					next_page = urljoin(base_root, next_link["href"])
+				nav_div = soup.select_one("div.mw-allpages-nav")
+				if nav_div:
+					nav_links = nav_div.select("a[href*='from=']")
+					if len(links) > 1:
+						next_link = nav_links[-1]
+						next_page = urljoin(base_root, next_link["href"])
+					elif next_page == allpages_url and len(links) > 0:
+						next_link = nav_links[-1]
+						next_page = urljoin(base_root, next_link["href"])
+					else:
+						next_page = None
 				else:
 					next_page = None
 

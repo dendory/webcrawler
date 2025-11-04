@@ -8,7 +8,7 @@ This is a modern self-hosted web crawler application that creates WARC archives 
 
 ## Features
 
-- **Simple and Advanced crawling modes**: Basic HTTP requests or Chromium-based crawling
+- **Simple, Wiki and Advanced crawling modes**: Basic HTTP requests or Chromium-based crawling
 - **WARC archive creation**: Creates standard WARC files for web archiving
 - **Bootstrap web interface**: Modern web UI for managing crawls and viewing archives
 - **Internet Archive integration**: Upload archives directly to Internet Archive

@@ -28,108 +28,108 @@ from functools import wraps
 
 # Selenium imports for Advanced mode
 try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options as ChromeOptions
-    from selenium.webdriver.chrome.service import Service as ChromeService
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.common.exceptions import TimeoutException, WebDriverException
-    SELENIUM_AVAILABLE = True
+	from selenium import webdriver
+	from selenium.webdriver.chrome.options import Options as ChromeOptions
+	from selenium.webdriver.chrome.service import Service as ChromeService
+	from selenium.webdriver.common.by import By
+	from selenium.webdriver.support.ui import WebDriverWait
+	from selenium.webdriver.support import expected_conditions as EC
+	from selenium.common.exceptions import TimeoutException, WebDriverException
+	SELENIUM_AVAILABLE = True
 except ImportError:
-    SELENIUM_AVAILABLE = False
+	SELENIUM_AVAILABLE = False
 
 app = Flask(__name__)
 cfg = None
 
 # Authentication functions
 def hash_password(password):
-    """Hash a password using SHA256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+	"""Hash a password using SHA256"""
+	return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_password(password, stored_hash):
-    """Verify a password against its stored hash"""
-    return hash_password(password) == stored_hash
+	"""Verify a password against its stored hash"""
+	return hash_password(password) == stored_hash
 
 def login_required(f):
-    """Decorator to require authentication for routes"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get('authenticated'):
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
+	"""Decorator to require authentication for routes"""
+	@wraps(f)
+	def decorated_function(*args, **kwargs):
+		if not session.get('authenticated'):
+			return redirect(url_for('login'))
+		return f(*args, **kwargs)
+	return decorated_function
 
 def check_authentication():
-    """Check if user is authenticated and session is still valid"""
-    if not session.get('authenticated'):
-        return False
-    
-    # Check if session has expired
-    login_time = session.get('login_time')
-    if login_time:
-        login_datetime = datetime.fromisoformat(login_time)
-        if datetime.now() - login_datetime > timedelta(days=int(cfg.get('general', 'session_days'))):
-            session.clear()
-            return False
-    
-    return True
+	"""Check if user is authenticated and session is still valid"""
+	if not session.get('authenticated'):
+		return False
+
+	# Check if session has expired
+	login_time = session.get('login_time')
+	if login_time:
+		login_datetime = datetime.fromisoformat(login_time)
+		if datetime.now() - login_datetime > timedelta(days=int(cfg.get('general', 'session_days'))):
+			session.clear()
+			return False
+
+	return True
 
 # Authentication routes
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Handle user login"""
-    if request.method == 'POST':
-        password = request.form.get('password')
-        if password:
-            stored_hash = cfg.get('general', 'password')
-            if verify_password(password, stored_hash):
-                session['authenticated'] = True
-                session['login_time'] = datetime.now().isoformat()
-                next_page = request.args.get('next')
-                return redirect(next_page) if next_page else redirect(url_for('index'))
-            else:
-                flash('Invalid password', 'error')
-        else:
-            flash('Password is required', 'error')
-    return render_template('login.html')
+	"""Handle user login"""
+	if request.method == 'POST':
+		password = request.form.get('password')
+		if password:
+			stored_hash = cfg.get('general', 'password')
+			if verify_password(password, stored_hash):
+				session['authenticated'] = True
+				session['login_time'] = datetime.now().isoformat()
+				next_page = request.args.get('next')
+				return redirect(next_page) if next_page else redirect(url_for('index'))
+			else:
+				flash('Invalid password', 'error')
+		else:
+			flash('Password is required', 'error')
+	return render_template('login.html')
 
 def make_http_request_with_retry(method, url, logger=None, **kwargs):
 	"""
 	Make an HTTP request with retry logic for temporary failures.
-	
+
 	Args:
 		method (str): HTTP method ('get', 'head', 'post', etc.)
 		url (str): URL to request
 		logger: Logger instance for logging retry attempts and failures
 		**kwargs: Additional arguments to pass to requests method
-		
+
 	Returns:
 		requests.Response: Response object if successful
-		
+
 	Raises:
 		RequestException: If all retries are exhausted
 	"""
 	# Get the appropriate requests method
 	request_method = getattr(requests, method.lower())
-	
+
 	# Get retry configuration from config
 	max_retries = int(cfg.get('connections', 'max_retries'))
 	base_delay = int(cfg.get('connections', 'base_delay'))
 	max_delay = int(cfg.get('connections', 'max_delay'))
-	
+
 	# Special handling for 429 (Too Many Requests)
 	last_429_time = None
 	rate_limit_retry_duration = 60  # 1 minute for 429 errors
-	
+
 	for attempt in range(max_retries + 1):  # +1 for initial attempt
 		try:
 			response = request_method(url, **kwargs)
-			
+
 			# Check for 429 status code
 			if response.status_code == 429:
 				current_time = time.time()
-				
+
 				# If this is the first 429 or enough time has passed since last 429
 				if last_429_time is None or (current_time - last_429_time) >= rate_limit_retry_duration:
 					last_429_time = current_time
@@ -137,13 +137,13 @@ def make_http_request_with_retry(method, url, logger=None, **kwargs):
 						# Wait 10 seconds before retrying 429
 						time.sleep(10)
 						continue
-				
+
 				# If we've been getting 429s for too long, give up
 				if (current_time - last_429_time) > rate_limit_retry_duration:
 					if logger:
 						logger.log(f"Rate limited (429) for {url} for too long, giving up after {attempt + 1} attempts", "WARN")
 					response.raise_for_status()
-			
+
 			# For other temporary errors, check if we should retry
 			elif response.status_code >= 500 or response.status_code == 408:
 				if attempt < max_retries:
@@ -155,10 +155,10 @@ def make_http_request_with_retry(method, url, logger=None, **kwargs):
 					if logger:
 						logger.log(f"HTTP error {response.status_code} for {url}, max retries ({max_retries}) exceeded, giving up", "WARN")
 					response.raise_for_status()
-			
+
 			# Success or permanent error (4xx except 408, 429)
 			return response
-			
+
 		except (ConnectionError, Timeout) as e:
 			# Network-related errors - always retry
 			if attempt < max_retries:
@@ -169,7 +169,7 @@ def make_http_request_with_retry(method, url, logger=None, **kwargs):
 				if logger:
 					logger.log(f"Network error ({type(e).__name__}) for {url}, max retries ({max_retries}) exceeded, giving up", "WARN")
 				raise
-		
+
 		except HTTPError as e:
 			# HTTP errors that aren't handled above
 			if attempt < max_retries and e.response.status_code >= 500:
@@ -180,7 +180,7 @@ def make_http_request_with_retry(method, url, logger=None, **kwargs):
 				if logger:
 					logger.log(f"HTTP error {e.response.status_code} for {url}, giving up", "WARN")
 				raise
-		
+
 		except RequestException as e:
 			# Other request exceptions - retry once
 			if attempt < max_retries:
@@ -191,7 +191,7 @@ def make_http_request_with_retry(method, url, logger=None, **kwargs):
 				if logger:
 					logger.log(f"Request error ({type(e).__name__}) for {url}, max retries ({max_retries}) exceeded, giving up", "WARN")
 				raise
-	
+
 	# This should never be reached, but just in case
 	if logger:
 		logger.log(f"All retries exhausted for {method.upper()} {url}", "WARN")
@@ -210,7 +210,7 @@ def load_config(config_file=None):
 	global cfg
 
 	cfg = configparser.ConfigParser()
-	
+
 	# Use provided config file or default location
 	if config_file is None:
 		config_file = os.path.join(os.path.dirname(__file__), 'crawler.cfg')
@@ -634,12 +634,12 @@ crawl_abort_flags = {}
 def clear_crawl_state(url=None):
 	"""
 	Clear global crawl state variables for a specific URL or all URLs.
-	
+
 	Args:
 		url (str, optional): Specific URL to clear state for. If None, clears all state.
 	"""
 	global crawl_progress, crawl_stats, crawl_abort_flags
-	
+
 	if url:
 		# Clear state for specific URL
 		crawl_abort_flags.pop(url, None)
@@ -1007,27 +1007,27 @@ class WebCrawler:
 	def get_file_extension_from_content_type(self, content_type, url_path=None):
 		"""
 		Get appropriate file extension from content type and optionally URL path.
-		
+
 		Args:
 			content_type (str): The MIME content type
 			url_path (str): Optional URL path to extract extension from
-			
+
 		Returns:
 			str: Appropriate file extension (e.g., '.css', '.js', '.png')
 		"""
 		if not content_type:
 			return '.bin'
-			
+
 		content_type_lower = content_type.lower()
-		
+
 		# CSS files
 		if 'css' in content_type_lower:
 			return '.css'
-		
+
 		# JavaScript files
 		elif 'javascript' in content_type_lower or 'ecmascript' in content_type_lower:
 			return '.js'
-		
+
 		# Images - try to get specific extension from content type
 		elif 'image/' in content_type_lower:
 			if 'png' in content_type_lower:
@@ -1053,7 +1053,7 @@ class WebCrawler:
 					if ext:
 						return ext
 				return '.bin'
-		
+
 		# Fonts - try to get specific extension from content type
 		elif 'font/' in content_type_lower:
 			if 'woff2' in content_type_lower:
@@ -1073,7 +1073,7 @@ class WebCrawler:
 					if ext:
 						return ext
 				return '.font'
-		
+
 		# Video files
 		elif 'video/' in content_type_lower:
 			if 'mp4' in content_type_lower:
@@ -1084,7 +1084,7 @@ class WebCrawler:
 				return '.ogg'
 			else:
 				return '.bin'
-		
+
 		# Audio files
 		elif 'audio/' in content_type_lower:
 			if 'mpeg' in content_type_lower or 'mp3' in content_type_lower:
@@ -1095,7 +1095,7 @@ class WebCrawler:
 				return '.ogg'
 			else:
 				return '.bin'
-		
+
 		# Documents
 		elif 'application/pdf' in content_type_lower:
 			return '.pdf'
@@ -1105,7 +1105,7 @@ class WebCrawler:
 			return '.json'
 		elif 'application/xml' in content_type_lower or 'text/xml' in content_type_lower:
 			return '.xml'
-		
+
 		# Text files
 		elif 'text/html' in content_type_lower:
 			return '.html'
@@ -1113,13 +1113,13 @@ class WebCrawler:
 			return '.txt'
 		elif 'text/csv' in content_type_lower:
 			return '.csv'
-		
+
 		# Try to get extension from URL path if available
 		if url_path:
 			ext = os.path.splitext(url_path)[1]
 			if ext:
 				return ext
-		
+
 		# Default fallback
 		return '.bin'
 
@@ -1182,26 +1182,26 @@ class WebCrawler:
 		soup = BeautifulSoup(html_content, 'html.parser')
 		links = []
 
-		# --- Page links (same host, same folder) ---
+		# Page links (same host, same folder)
 		for link in soup.find_all('a', href=True):
 			href = link['href']
 			absolute_url = urljoin(base_url, href).split('#')[0]
 			if self.is_same_host_and_folder(absolute_url):
 				links.append(absolute_url)
 
-		# --- CSS files (any host) ---
+		# CSS files (any host)
 		for link in soup.find_all('link', rel='stylesheet', href=True):
 			href = link['href']
 			absolute_url = urljoin(base_url, href).split('#')[0]
 			links.append(absolute_url)
 
-		# --- JavaScript files (any host) ---
+		# JavaScript files (any host)
 		for script in soup.find_all('script', src=True):
 			src = script['src']
 			absolute_url = urljoin(base_url, src).split('#')[0]
 			links.append(absolute_url)
 
-		# --- Fonts from CSS @font-face rules ---
+		# Fonts from CSS @font-face rules
 		font_urls = re.findall(r'url\(["\']?([^"\'()]+)["\']?\)', html_content)
 		for font_url in font_urls:
 			font_url = font_url.strip()
@@ -1209,14 +1209,14 @@ class WebCrawler:
 				absolute_url = urljoin(base_url, font_url).split('#')[0]
 				links.append(absolute_url)
 
-		# --- Frames and iframes (same host, same folder) ---
+		# Frames and iframes (same host, same folder)
 		for frame in soup.find_all(['frame', 'iframe'], src=True):
 			src = frame['src']
 			absolute_url = urljoin(base_url, src).split('#')[0]
 			if self.is_same_host_and_folder(absolute_url):
 				links.append(absolute_url)
 
-		# --- Icons / favicons (same host) ---
+		# Icons / favicons (same host)
 		for link in soup.find_all('link', href=True):
 			rel = link.get('rel', [])
 			if 'icon' in rel or 'shortcut' in rel:
@@ -1225,7 +1225,7 @@ class WebCrawler:
 				if self.is_same_host(absolute_url):
 					links.append(absolute_url)
 
-		# --- Media links (images, audio, video) ---
+		# Media links (images, audio, video)
 		media_links = self.extract_media_links(html_content, base_url)
 		links.extend(media_links)
 
@@ -1532,7 +1532,7 @@ class WebCrawler:
 				headers = {'User-Agent': cfg.get('simple', 'user_agent')}
 				response = make_http_request_with_retry('head', url, logger=self.logger, timeout=int(cfg.get('connections', 'timeout')), allow_redirects=True, headers=headers)
 				content_type = response.headers.get('content-type', '').lower()
-				
+
 				# Infer content type from URL if needed
 				content_type = self.infer_content_type_from_url(url, content_type)
 
@@ -2287,7 +2287,7 @@ class WebCrawler:
 					# Clean up temp directory
 					if self.temp_dir and os.path.exists(self.temp_dir):
 						shutil.rmtree(self.temp_dir)
-					
+
 					# Clear global state for this crawl after abort
 					clear_crawl_state(self.start_url)
 					return
@@ -2373,7 +2373,7 @@ class WebCrawler:
 
 			# Clean up temp directory
 			shutil.rmtree(self.temp_dir)
-			
+
 			# Clear global state for this crawl after successful completion
 			clear_crawl_state(self.start_url)
 
@@ -2404,7 +2404,7 @@ class WebCrawler:
 
 			if self.temp_dir and os.path.exists(self.temp_dir):
 				shutil.rmtree(self.temp_dir)
-			
+
 			# Clear global state for this crawl after error
 			clear_crawl_state(self.start_url)
 
@@ -2458,7 +2458,7 @@ def start_crawl():
 
 	# Clear any existing state for this URL before starting new crawl
 	clear_crawl_state(sanitized_url)
-	
+
 	# Start crawling in a separate thread
 	crawler = WebCrawler(sanitized_url, mode, max_size, niceness, restrictpage)
 	thread = threading.Thread(target=crawler.crawl)
@@ -3085,7 +3085,7 @@ def view_file(archive_id, record_index):
 					content_size = len(content_bytes)
 					content = None
 					is_large_binary = False
-					
+
 					if content_type.startswith('text/') or content_type.startswith('application/javascript') or content_type.startswith('application/css'):
 						# Text content - decode as UTF-8
 						content = content_bytes.decode('utf-8', errors='ignore')
@@ -3384,16 +3384,15 @@ if __name__ == '__main__':
 	# Parse command line arguments
 	import argparse
 	parser = argparse.ArgumentParser(description='Web Crawler Application')
-	parser.add_argument('--config', '-c', help='Path to configuration file', 
-	                   default='/opt/crawler/config/crawler.cfg')
+	parser.add_argument('--config', '-c', help='Path to configuration file', default='/opt/crawler/config/crawler.cfg')
 	args = parser.parse_args()
-	
+
 	cfg = load_config(args.config)
 	init_db()
-	
+
 	# Set Flask secret key from config
 	app.config['SECRET_KEY'] = cfg.get('general', 'secret_key')
-	
+
 	ssl_cert = cfg.get('general', 'ssl_cert')
 	ssl_key = cfg.get('general', 'ssl_key')
 

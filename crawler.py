@@ -2448,7 +2448,7 @@ def start_crawl():
 
 	# Validate mode
 	mode = request.form.get('mode', 'simple')
-	if mode not in ['simple', 'advanced']:
+	if mode not in ['simple', 'advanced', 'wiki']:
 		mode = 'simple'  # Default to safe mode
 
 	# Validate max_size

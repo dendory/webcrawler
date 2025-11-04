@@ -2045,6 +2045,8 @@ class WebCrawler:
 
 				# Extract article links (skip Special:, Talk:, etc.)
 				for a in soup.select("a[href^='/wiki/']"):
+					self.logger.log(f"Processing: {a}", "DEBUG")
+
 					href = a.get("href")
 					if any(href.startswith(prefix) for prefix in [
 						"/wiki/Special:",

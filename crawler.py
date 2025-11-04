@@ -2168,7 +2168,7 @@ class WebCrawler:
 						time.sleep(0.5 if self.niceness else 0)
 
 					# Extract CSS files
-					css_links = self.extract_css_links(text_content, response.url)
+					css_links = self.extract_css_links(resp.text, article_url)
 					self.logger.log(f"Discovered {len(css_links)} css resources", "INFO")
 
 					for css_url in css_links:

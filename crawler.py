@@ -3142,14 +3142,14 @@ def view_file(archive_id, record_index):
 							content = rewrite_css_urls(content, sanitized_id, url)
 					elif content_type.startswith('image/'):
 						# Images - encode as base64 for display (but only if not too large)
-						max_image_size = int(cfg.get('connections', 'max_image_display_size'))
+						max_image_size = int(cfg.get('viewer', 'max_image_display_size'))
 						if content_size <= max_image_size:
 							content = base64.b64encode(content_bytes).decode('utf-8')
 						else:
 							is_large_binary = True
 					else:
-						# Other binary content - only encode if small, otherwise just mark as large binary
-						max_binary_size = int(cfg.get('connections', 'max_binary_display_size'))
+						# Other binary content - only encode if small, otherwise just show a download button
+						max_binary_size = int(cfg.get('viewer', 'max_binary_display_size'))
 						if content_size <= max_binary_size:
 							content = base64.b64encode(content_bytes).decode('utf-8')
 						else:

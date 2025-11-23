@@ -2014,6 +2014,8 @@ class WebCrawler:
 		while fetching each article using Selenium so dynamic load.php
 		modules (CSS/JS) are correctly discovered.
 		"""
+		options = self.driver.ChromeOptions() # Avoid built-in Chrome timeout on heavy JS pages
+		options.page_load_strategy = "none"
 		try:
 			headers = {
 				"User-Agent": cfg.get('simple', 'user_agent'),

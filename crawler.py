@@ -1173,8 +1173,7 @@ class WebCrawler:
 				if parts:
 					links.append(urljoin(base_url, parts[0]))
 
-		# Deduplicate and filter to same host
-		links = [l.split('#')[0] for l in links if self.is_same_host(l)]
+		# Deduplicate
 		return list(set(links))
 
 	def extract_links(self, html_content, base_url):

@@ -2534,8 +2534,8 @@ class WebCrawler:
 		self.logger = CrawlLogger(log_path)
 		self.logger.log_crawl_start(self.start_url, self.mode, self.max_size, self.niceness, self.restrictpage)
 
-		# Initialize WebDriver for Advanced mode
-		if self.mode == 'advanced':
+		# Initialize WebDriver for Advanced and Wiki modes
+		if self.mode == 'advanced' or self.mode == 'wiki':
 			if not SELENIUM_AVAILABLE:
 				self.logger.log("Selenium not available. Falling back to Simple mode.", "WARN")
 				self.mode = 'simple'

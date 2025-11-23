@@ -2170,6 +2170,7 @@ class WebCrawler:
 
 							if media_url not in self.visited_urls:
 								self.visited_urls.add(media_url)
+								crawl_stats[self.start_url]['total_discovered'] += 1
 								self.crawl_page(media_url)
 
 							time.sleep(0.5 if self.niceness else 0)
@@ -2187,6 +2188,7 @@ class WebCrawler:
 
 							if css_url not in self.visited_urls:
 								self.visited_urls.add(css_url)
+								crawl_stats[self.start_url]['total_discovered'] += 1
 								self.crawl_page(css_url)
 
 							time.sleep(0.5 if self.niceness else 0)

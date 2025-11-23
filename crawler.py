@@ -2010,6 +2010,239 @@ class WebCrawler:
 		Crawl MediaWiki sites efficiently by parsing from Special:AllPages.
 
 		This method avoids recursively discovering links and instead
+		only crawls the article pages listed in the Special:AllPages view,
+		while fetching each article using Selenium so dynamic load.php
+		modules (CSS/JS) are correctly discovered.
+		"""
+		try:
+			headers = {
+				"User-Agent": cfg.get('simple', 'user_agent'),
+				"Accept": cfg.get('simple', 'accept_header'),
+				"Accept-Language": cfg.get('simple', 'accept_language')
+			}
+
+			# Determine base wiki root
+			parsed = urlparse(self.start_url)
+			base_root = f"{parsed.scheme}://{parsed.netloc}"
+
+			# Identify the Special:AllPages URL
+			if "Special:AllPages" not in url:
+				allpages_url = urljoin(base_root, "/wiki/Special:AllPages")
+			else:
+				allpages_url = url
+
+			self.logger.log(f"Starting Wiki crawl from {allpages_url}", "INFO")
+			all_article_links = set()
+			next_page = allpages_url
+
+			# Discover all articles
+			while next_page:
+				self.logger.log(f"Processing wiki page: {next_page}", "DEBUG")
+				resp = make_http_request_with_retry("get", next_page,
+													logger=self.logger,
+													headers=headers)
+				if resp.status_code != 200:
+					self.logger.log(f"Failed to fetch {next_page} (status {resp.status_code})", "ERROR")
+					break
+
+				soup = BeautifulSoup(resp.text, "html.parser")
+
+				# Extract article links (skip Special:, Talk:, etc.)
+				for a in soup.select("a[href^='/wiki/']"):
+					href = a.get("href")
+					if any(
+						href.startswith(prefix)
+						for prefix in [
+							"/wiki/Special:",
+							"/wiki/Talk:",
+							"/wiki/User:",
+							"/wiki/Help:",
+							"/wiki/Category:",
+							"/wiki/File:",
+							"/wiki/Template:"
+						]
+					):
+						continue
+
+					full_url = urljoin(base_root, href)
+					if not self.is_same_host(full_url):
+						continue
+
+					all_article_links.add(full_url)
+
+				# Pagination
+				nav_div = soup.select_one("div.mw-allpages-nav")
+				if nav_div:
+					nav_links = nav_div.select("a[href*='from=']")
+					if len(nav_links) > 1:
+						next_link = nav_links[-1]
+						next_page = urljoin(base_root, next_link["href"])
+					elif next_page == allpages_url and len(nav_links) > 0:
+						next_link = nav_links[-1]
+						next_page = urljoin(base_root, next_link["href"])
+					else:
+						next_page = None
+				else:
+					next_page = None
+
+			self.logger.log_links_discovered(allpages_url, len(all_article_links))
+
+			# Crawl each article with selenium
+			for article_url in sorted(all_article_links):
+
+				if crawl_abort_flags.get(self.start_url, False):
+					self.logger.log("Crawl aborted by user during Wiki crawl", "WARN")
+					break
+
+				is_valid, safe_article_url, err = validate_url(article_url)
+				if not is_valid:
+					self.logger.log(f"Skipping invalid wiki article URL: {err}", "WARN")
+					continue
+				article_url = safe_article_url
+
+				should_ignore, pattern, description = should_ignore_url(article_url)
+				if should_ignore:
+					self.logger.log_url_skip(article_url, f"matches pattern: {description or pattern}")
+					crawl_progress[article_url] = {
+						'status': 'skipped',
+						'message': f'Skipped (matches pattern: {description or pattern})',
+						'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+					}
+					continue
+
+				if article_url in self.visited_urls:
+					continue
+
+				self.visited_urls.add(article_url)
+				crawl_progress[article_url] = {
+					'status': 'crawling',
+					'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+				}
+
+				# Check size with head request
+				try:
+					head_resp = make_http_request_with_retry(
+						"head", article_url,
+						logger=self.logger, headers=headers,
+						allow_redirects=True
+					)
+					content_length = head_resp.headers.get("Content-Length")
+					if self.max_size > 0 and content_length and int(content_length) > self.max_size:
+						self.logger.log_url_skip(article_url, "skipped due to size limit")
+						crawl_progress[article_url] = {
+							'status': 'skipped',
+							'message': 'Skipped (too large)',
+							'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+						}
+						continue
+
+				except Exception as e:
+					self.logger.log_url_error(article_url, f"HEAD request failed: {str(e)}")
+
+				# Fetch page using selenium
+				try:
+					self.driver.get(article_url)
+
+					# Wait DOM ready
+					WebDriverWait(self.driver, 10).until(
+						lambda d: d.execute_script("return document.readyState") == "complete"
+					)
+
+					# Scroll to trigger lazy loads
+					self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+					time.sleep(0.5)
+
+					# Wait for dynamic JS/css load.php
+					try:
+						WebDriverWait(self.driver, 15).until(
+							lambda d: self._wait_for_dynamic_content(d)
+						)
+					except:
+						self.logger.log("Dynamic content wait timed out; continuing", "DEBUG")
+
+					final_url = self.driver.current_url
+					page_source = self.driver.page_source
+					status_code = 200
+					content_type = "text/html"
+
+					# Save HTML
+					parsed_path = urlparse(article_url).path
+					filename = f"{len(self.crawled_pages):04d}_{parsed_path.replace('/', '_')}.html"
+					filepath = os.path.join(self.temp_dir, filename)
+
+					with open(filepath, "w", encoding="utf-8") as f:
+						f.write(page_source)
+
+					# Record page
+					self.crawled_pages.append({
+						"url": article_url,
+						"filepath": filepath,
+						"status_code": status_code,
+						"content_type": content_type
+					})
+
+					crawl_progress[article_url]["status"] = "crawled"
+					crawl_progress[article_url]["status_code"] = status_code
+					self.logger.log_url_crawl(article_url, status_code, content_type, len(page_source))
+
+					text_content = page_source
+
+					# Extract media links
+					media_links = self.extract_media_links(text_content, base_root)
+					self.logger.log_links_discovered(article_url, len(media_links))
+
+					for media_url in media_links:
+						should_ignore, _, _ = should_ignore_url(media_url)
+						if should_ignore:
+							continue
+						if media_url not in self.visited_urls:
+							self.to_visit.append(media_url)
+							self.crawl_page(media_url)
+							self.visited_urls.add(media_url)
+
+						crawl_stats[self.start_url]['total_completed'] = len(self.visited_urls)
+						crawl_stats[self.start_url]['total_discovered'] = len(self.visited_urls) + len(self.to_visit)
+						time.sleep(0.5 if self.niceness else 0)
+
+					# Extract CSS links
+					css_links = self.extract_css_links(text_content, base_root)
+					self.logger.log_links_discovered(article_url, len(css_links))
+
+					for css_url in css_links:
+						should_ignore, _, _ = should_ignore_url(css_url)
+						if should_ignore:
+							continue
+						if css_url not in self.visited_urls:
+							self.to_visit.append(css_url)
+							self.crawl_page(css_url)
+							self.visited_urls.add(css_url)
+
+						crawl_stats[self.start_url]['total_completed'] = len(self.visited_urls)
+						crawl_stats[self.start_url]['total_discovered'] = len(self.visited_urls) + len(self.to_visit)
+						time.sleep(0.5 if self.niceness else 0)
+
+				except Exception as e:
+					self.logger.log_url_error(article_url, str(e))
+					crawl_progress[article_url] = {
+						'status': 'error',
+						'error': str(e),
+						'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+					}
+
+			self.logger.log(f"Wiki crawl completed. {len(self.crawled_pages)} pages archived.", "INFO")
+
+			return 200 if self.crawled_pages else 204
+
+		except Exception as e:
+			self.logger.log_crawl_error(f"Wiki crawl failed: {str(e)}")
+			traceback.print_exception(type(e), e, e.__traceback__)
+			return None
+
+	def crawl_page_wiki2(self, url):
+		"""
+		Crawl MediaWiki sites efficiently by parsing from Special:AllPages.
+
+		This method avoids recursively discovering links and instead
 		only crawls the article pages listed in the Special:AllPages view.
 
 		Args:

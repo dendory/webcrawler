@@ -2007,7 +2007,7 @@ class WebCrawler:
 				self.logger.log_url_error(url, str(e))
 			return None
 
-	def crawl_page_wiki(self, url):
+	def crawl_page_wiki_adv(self, url):
 		"""
 		Crawl MediaWiki sites efficiently by parsing from Special:AllPages.
 
@@ -2242,7 +2242,7 @@ class WebCrawler:
 			traceback.print_exception(type(e), e, e.__traceback__)
 			return None
 
-	def crawl_page_wiki2(self, url):
+	def crawl_page_wiki(self, url):
 		"""
 		Crawl MediaWiki sites efficiently by parsing from Special:AllPages.
 

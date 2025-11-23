@@ -1726,6 +1726,7 @@ class WebCrawler:
 				# For HTML pages, use Selenium for JavaScript rendering
 				safe_url = quote(url, safe=":/#?&=")
 				self.driver.get(safe_url)
+				self.driver.execute_script("return window.stop();")
 
 				# Wait for page to load and get final URL (after redirects)
 				WebDriverWait(self.driver, 10).until(
@@ -2144,6 +2145,7 @@ class WebCrawler:
 				try:
 					safe_url = quote(article_url, safe=":/#?&=")
 					self.driver.get(safe_url)
+					self.driver.execute_script("return window.stop();")
 
 					# Wait DOM ready
 					WebDriverWait(self.driver, 10).until(

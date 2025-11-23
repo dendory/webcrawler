@@ -18,7 +18,7 @@ import hashlib
 from io import BytesIO
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote
 from flask import Flask, render_template, request, jsonify, redirect, url_for, render_template_string, session, flash
 from warcio.archiveiterator import ArchiveIterator
 from warcio.warcwriter import WARCWriter

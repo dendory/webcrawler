@@ -247,7 +247,6 @@ def create_webdriver():
 		raise WebDriverException("Selenium is not available. Please install selenium package.")
 
 	chrome_options = ChromeOptions()
-	chrome_options.page_load_strategy = "none"  # Avoid long timeouts on JS-heavy pages
 	chrome_options.add_argument('--headless')
 	chrome_options.add_argument('--no-sandbox')
 	chrome_options.add_argument('--disable-dev-shm-usage')
@@ -1725,7 +1724,8 @@ class WebCrawler:
 
 			else:
 				# For HTML pages, use Selenium for JavaScript rendering
-				self.driver.get(url)
+				safe_url = quote(url, safe=":/#?&=")
+				self.driver.get(safe_url)
 
 				# Wait for page to load and get final URL (after redirects)
 				WebDriverWait(self.driver, 10).until(
@@ -2142,7 +2142,8 @@ class WebCrawler:
 
 				# Fetch page using selenium
 				try:
-					self.driver.get(article_url)
+					safe_url = quote(article_url, safe=":/#?&=")
+					self.driver.get(safe_url)
 
 					# Wait DOM ready
 					WebDriverWait(self.driver, 10).until(

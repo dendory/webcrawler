@@ -2156,11 +2156,11 @@ class WebCrawler:
 					self.logger.log_url_crawl(article_url, resp.status_code, content_type, len(resp.content))
 
 					if 'text/html' in content_type:
-						# Extract media links
 						text_content = resp.content.decode('utf-8', errors='ignore')
+
+						# Extract media links
 						media_links = self.extract_media_links(text_content, base_root)
-						if self.logger:
-							self.logger.log_links_discovered(article_url, len(media_links))
+						self.logger.log_links_discovered(article_url, len(media_links))
 
 						for media_url in media_links:
 
@@ -2169,16 +2169,17 @@ class WebCrawler:
 								continue
 
 							if media_url not in self.visited_urls:
-								self.visited_urls.add(media_url)
-								crawl_stats[self.start_url]['total_discovered'] += 1
+								self.to_visit.append(media_url)
 								self.crawl_page(media_url)
+								self.visited_urls.add(media_url)
 
+							crawl_stats[self.start_url]['total_completed'] = len(self.visited_urls)
+							crawl_stats[self.start_url]['total_discovered'] = len(self.visited_urls) + len(self.to_visit)
 							time.sleep(0.5 if self.niceness else 0)
 
 						# Extract CSS files
 						css_links = self.extract_css_links(text_content, base_root)
-						if self.logger:
-							self.logger.log_links_discovered(article_url, len(css_links))
+						self.logger.log_links_discovered(article_url, len(css_links))
 
 						for css_url in css_links:
 
@@ -2187,11 +2188,14 @@ class WebCrawler:
 								continue
 
 							if css_url not in self.visited_urls:
-								self.visited_urls.add(css_url)
-								crawl_stats[self.start_url]['total_discovered'] += 1
+								self.to_visit.append(css_url)
 								self.crawl_page(css_url)
+								self.visited_urls.add(css_url)
 
+							crawl_stats[self.start_url]['total_completed'] = len(self.visited_urls)
+							crawl_stats[self.start_url]['total_discovered'] = len(self.visited_urls) + len(self.to_visit)
 							time.sleep(0.5 if self.niceness else 0)
+
 
 				except Exception as e:
 					self.logger.log_url_error(article_url, str(e))

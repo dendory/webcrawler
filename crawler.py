@@ -293,7 +293,7 @@ class CrawlLogger:
 			message (str): The message to log
 			level (str): Log level (INFO, WARN, ERROR, DEBUG)
 		"""
-		if str(cfg.get("general", "debug")).lower != "true" and str(level).lower() == "debug"
+		if str(cfg.get("general", "debug")).lower != "true" and str(level).lower() == "debug":
 			return
 
 		timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
